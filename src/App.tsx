@@ -5,6 +5,7 @@ import ContactPage from './pages/ContactPage'
 import HomePage from './pages/HomePage'
 import PlatformPage from './pages/PlatformPage'
 import SolutionsPage from './pages/SolutionsPage'
+import DashboardPage from './features/activation/DashboardPage'
 
 function App() {
   return (
@@ -16,6 +17,8 @@ function App() {
           <Route path="about" element={<AboutPage />} />
           <Route path="contact" element={<ContactPage />} />
         </Route>
+          
+          <Route path="/demo" element={<DashboardPage />} />
       </Routes>
   )
 }
