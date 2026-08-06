@@ -49,9 +49,7 @@ function DemoMapContent() {
       mapId: tokenPayload.mapId,
     })
 
-    const mapView = await show3dMap(mapElement, mapData, {
-      lowDpi: false,
-    })
+    const mapView = await show3dMap(mapElement, mapData)
 
     setLoadState('ready')
     return mapView
