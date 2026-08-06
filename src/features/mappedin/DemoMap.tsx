@@ -1,12 +1,16 @@
 import { getMapData, show3dMap } from '@mappedin/mappedin-js'
 import {
   AlertTriangle,
+  Compass,
   Expand,
   Layers3,
   LoaderCircle,
   LocateFixed,
   MapPin,
+  MousePointer2,
   RotateCcw,
+  RotateCw,
+  Search,
   Tags,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -31,6 +35,10 @@ type LocationState =
   | { status: 'requesting'; message: string }
   | { status: 'ready'; message: string }
   | { status: 'error'; message: string }
+
+type MapData = Awaited<ReturnType<typeof getMapData>>
+type MapView = Awaited<ReturnType<typeof show3dMap>>
+type Space = ReturnType<MapData['getByType']>[number]
 
 function findDashboardMapPanel(): HTMLElement | null {
   const heading = Array.from(document.querySelectorAll('h2')).find(
@@ -59,7 +67,23 @@ function hidePlaceholderFloorButtons(): (() => void) | undefined {
   }
 }
 
-function updateDashboardLocation(name: string, floorName: string) {
+function setDefinitionValue(term: string, value: string) {
+  const terms = Array.from(document.querySelectorAll('dt'))
+  const target = terms.find((element) => element.textContent?.trim() === term)
+  const definition = target?.parentElement?.querySelector('dd')
+
+  if (definition) {
+    definition.textContent = value
+  }
+}
+
+function updateDashboardLocation(
+  name: string,
+  floorName: string,
+  spaceId: string,
+  latitude?: number,
+  longitude?: number,
+) {
   const label = Array.from(document.querySelectorAll('p')).find(
     (element) => element.textContent?.trim() === 'SELECTED LOCATION',
   )
@@ -72,25 +96,127 @@ function updateDashboardLocation(name: string, floorName: string) {
   }
 
   if (details) {
-    details.textContent = `${floorName} · Mappedin location`
+    details.textContent = `${floorName} · Live Mappedin space`
   }
+
+  setDefinitionValue('Department', 'Mappedin location data')
+  setDefinitionValue('Room type', 'Interactive mapped space')
+  setDefinitionValue('Equipment', 'Equipment integration pending')
+  setDefinitionValue('IT devices', `Mappedin ID: ${spaceId.slice(0, 12)}`)
+  setDefinitionValue(
+    'Open deficiencies',
+    latitude !== undefined && longitude !== undefined
+      ? `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+      : 'No linked QC records',
+  )
+}
+
+async function addPersistentLabels(mapView: MapView, mapData: MapData) {
+  mapView.Labels.removeAll()
+
+  const spaces = mapData
+    .getByType('space')
+    .filter((space) => Boolean(space.name?.trim()))
+
+  await Promise.all(
+    spaces.map((space) =>
+      mapView.Labels.add(space, space.name, {
+        interactive: true,
+        enabled: true,
+        rank: 'always-visible',
+        appearance: {
+          margin: 6,
+          maxLines: 2,
+          maxWidth: 150,
+          textSize: 11.5,
+          textColor: '#172033',
+          textOutlineColor: '#ffffff',
+          pinColor: '#172033',
+          pinOutlineColor: '#ffffff',
+        },
+      }),
+    ),
+  )
 }
 
 function DemoMapContent() {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const mapViewRef = useRef<Awaited<ReturnType<typeof show3dMap>> | null>(null)
+  const mapViewRef = useRef<MapView | null>(null)
+  const mapDataRef = useRef<MapData | null>(null)
+  const searchCleanupRef = useRef<(() => void) | null>(null)
+  const bearingRef = useRef(0)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [floors, setFloors] = useState<FloorOption[]>([])
   const [currentFloorId, setCurrentFloorId] = useState('')
   const [labelsVisible, setLabelsVisible] = useState(true)
-  const [selectedSpace, setSelectedSpace] = useState('Select a room or label')
+  const [selectedSpace, setSelectedSpace] = useState('Select a mapped room')
+  const [cameraMode, setCameraMode] = useState<'3d' | 'top'>('3d')
   const [locationState, setLocationState] = useState<LocationState>({
     status: 'idle',
     message: 'Location is off until you request it.',
   })
+
+  const selectSpace = useCallback(
+    (space: Space, mapView: MapView, floorName?: string) => {
+      const name = space.name?.trim() || 'Unnamed mapped location'
+      const resolvedFloor = floorName || mapView.currentFloor.name
+
+      mapView.Camera.focusOn(space)
+      setSelectedSpace(name)
+      updateDashboardLocation(name, resolvedFloor, space.id)
+    },
+    [],
+  )
+
+  const wireDashboardSearch = useCallback(
+    (mapView: MapView, mapData: MapData) => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[placeholder="Search rooms, departments, assets, or documents"]',
+      )
+
+      if (!input) {
+        return undefined
+      }
+
+      const namedSpaces = mapData
+        .getByType('space')
+        .filter((space) => Boolean(space.name?.trim()))
+
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Enter') {
+          return
+        }
+
+        const query = input.value.trim().toLowerCase()
+
+        if (!query) {
+          return
+        }
+
+        const space = namedSpaces.find((candidate) =>
+          candidate.name.toLowerCase().includes(query),
+        )
+
+        if (!space) {
+          input.setCustomValidity('No mapped room matched that search.')
+          input.reportValidity()
+          return
+        }
+
+        input.setCustomValidity('')
+        selectSpace(space, mapView)
+      }
+
+      input.addEventListener('keydown', onKeyDown)
+      input.title = 'Enter a mapped room name and press Enter'
+
+      return () => input.removeEventListener('keydown', onKeyDown)
+    },
+    [selectSpace],
+  )
 
   const loadMap = useCallback(async () => {
     const mapElement = mapElementRef.current
@@ -118,6 +244,13 @@ function DemoMapContent() {
 
     const mapView = await show3dMap(mapElement, mapData)
     mapViewRef.current = mapView
+    mapDataRef.current = mapData
+
+    mapView.Camera.interactions.set({
+      pan: true,
+      zoom: true,
+      rotationAndTilt: true,
+    })
 
     const floorOptions = mapData
       .getByType('floor')
@@ -138,35 +271,53 @@ function DemoMapContent() {
       })
     })
 
-    mapView.Labels.__EXPERIMENTAL__all()
+    await addPersistentLabels(mapView, mapData)
 
     mapView.on('floor-change', (event) => {
       setCurrentFloorId(event.floor.id)
+      mapView.Camera.focusOn(event.floor)
+    })
+
+    mapView.on('camera-change', (transform) => {
+      bearingRef.current = transform.bearing
     })
 
     mapView.on('click', (event) => {
       const space = event.spaces?.[0]
       const label = event.labels?.[0]
       const floor = event.floors?.[0] ?? mapView.currentFloor
-      const name = space?.name || label?.text || 'Unnamed mapped location'
 
       if (space) {
+        const name = space.name?.trim() || 'Unnamed mapped location'
         mapView.Camera.focusOn(space)
+        setSelectedSpace(name)
+        updateDashboardLocation(
+          name,
+          floor.name || `Level ${floor.elevation}`,
+          space.id,
+          event.coordinate.latitude,
+          event.coordinate.longitude,
+        )
+        return
       }
 
-      setSelectedSpace(name)
-      updateDashboardLocation(name, floor.name || `Level ${floor.elevation}`)
+      if (label) {
+        setSelectedSpace(label.text)
+      }
     })
 
+    searchCleanupRef.current = wireDashboardSearch(mapView, mapData) ?? null
+
     mapView.Camera.focusOn(mapView.currentFloor)
+    mapView.Camera.set({ pitch: 55, bearing: 0 })
 
     setLoadState('ready')
     return mapView
-  }, [])
+  }, [wireDashboardSearch])
 
   useEffect(() => {
     let cancelled = false
-    let activeMapView: Awaited<ReturnType<typeof show3dMap>> | undefined
+    let activeMapView: MapView | undefined
 
     void loadMap()
       .then((mapView) => {
@@ -190,7 +341,10 @@ function DemoMapContent() {
 
     return () => {
       cancelled = true
+      searchCleanupRef.current?.()
+      searchCleanupRef.current = null
       mapViewRef.current = null
+      mapDataRef.current = null
       activeMapView?.destroy()
     }
   }, [loadMap, reloadKey])
@@ -199,20 +353,64 @@ function DemoMapContent() {
     mapViewRef.current?.setFloor(floorId)
   }
 
-  const toggleLabels = () => {
+  const toggleLabels = async () => {
+    const mapView = mapViewRef.current
+    const mapData = mapDataRef.current
+
+    if (!mapView || !mapData) {
+      return
+    }
+
+    if (labelsVisible) {
+      mapView.Labels.removeAll()
+      setLabelsVisible(false)
+      return
+    }
+
+    await addPersistentLabels(mapView, mapData)
+    setLabelsVisible(true)
+  }
+
+  const rotateCamera = (degrees: number) => {
     const mapView = mapViewRef.current
 
     if (!mapView) {
       return
     }
 
-    if (labelsVisible) {
-      mapView.Labels.removeAll()
-    } else {
-      mapView.Labels.__EXPERIMENTAL__all()
+    const nextBearing = (bearingRef.current + degrees + 360) % 360
+    bearingRef.current = nextBearing
+    mapView.Camera.set({ bearing: nextBearing, pitch: 55 })
+    setCameraMode('3d')
+  }
+
+  const toggleCameraMode = () => {
+    const mapView = mapViewRef.current
+
+    if (!mapView) {
+      return
     }
 
-    setLabelsVisible((current) => !current)
+    if (cameraMode === '3d') {
+      mapView.Camera.set({ pitch: 0 })
+      setCameraMode('top')
+    } else {
+      mapView.Camera.set({ pitch: 55 })
+      setCameraMode('3d')
+    }
+  }
+
+  const resetCamera = () => {
+    const mapView = mapViewRef.current
+
+    if (!mapView) {
+      return
+    }
+
+    bearingRef.current = 0
+    mapView.Camera.focusOn(mapView.currentFloor)
+    mapView.Camera.set({ bearing: 0, pitch: 55 })
+    setCameraMode('3d')
   }
 
   const requestLocation = () => {
@@ -239,7 +437,7 @@ function DemoMapContent() {
 
         setLocationState({
           status: 'ready',
-          message: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}. ${accuracyMessage} Mappedin remains centered on this facility; an off-site position is reported but not plotted as an indoor Blue Dot.`,
+          message: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}. ${accuracyMessage} An off-site position is reported but is not plotted as an indoor Blue Dot.`,
         })
       },
       (error) => {
@@ -277,7 +475,7 @@ function DemoMapContent() {
       ref={panelRef}
       className="absolute inset-0 z-20 overflow-hidden bg-[#070b16]"
     >
-      <div ref={mapElementRef} className="h-full min-h-[48rem] w-full" />
+      <div ref={mapElementRef} className="h-full min-h-[56rem] w-full" />
 
       {loadState === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#070b16]">
@@ -325,8 +523,8 @@ function DemoMapContent() {
             Live digital twin
           </div>
 
-          <div className="absolute right-4 top-4 flex flex-col items-end gap-2">
-            <div className="flex flex-wrap justify-end gap-2 rounded-2xl border border-white/10 bg-[#07111a]/90 p-2 shadow-xl backdrop-blur-md">
+          <div className="absolute right-4 top-4 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2">
+            <div className="flex max-w-full flex-wrap justify-end gap-2 rounded-2xl border border-white/10 bg-[#07111a]/90 p-2 shadow-xl backdrop-blur-md">
               {floors.map((floor) => (
                 <button
                   key={floor.id}
@@ -344,10 +542,44 @@ function DemoMapContent() {
               ))}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <button
                 type="button"
-                onClick={toggleLabels}
+                onClick={() => rotateCamera(-90)}
+                className="rounded-xl border border-white/10 bg-[#07111a]/90 p-2.5 text-slate-200 backdrop-blur-md transition hover:bg-white/10"
+                aria-label="Rotate map left 90 degrees"
+                title="Rotate left"
+              >
+                <RotateCcw size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => rotateCamera(90)}
+                className="rounded-xl border border-white/10 bg-[#07111a]/90 p-2.5 text-slate-200 backdrop-blur-md transition hover:bg-white/10"
+                aria-label="Rotate map right 90 degrees"
+                title="Rotate right"
+              >
+                <RotateCw size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={toggleCameraMode}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#07111a]/90 px-3 py-2 text-xs font-medium text-slate-200 backdrop-blur-md transition hover:bg-white/10"
+              >
+                <Compass size={15} />
+                {cameraMode === '3d' ? 'Top view' : '3D view'}
+              </button>
+              <button
+                type="button"
+                onClick={resetCamera}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#07111a]/90 px-3 py-2 text-xs font-medium text-slate-200 backdrop-blur-md transition hover:bg-white/10"
+              >
+                <RotateCcw size={15} />
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => void toggleLabels()}
                 className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#07111a]/90 px-3 py-2 text-xs font-medium text-slate-200 backdrop-blur-md transition hover:bg-white/10"
               >
                 <Tags size={15} />
@@ -364,10 +596,25 @@ function DemoMapContent() {
             </div>
           </div>
 
+          <div className="pointer-events-none absolute left-4 top-14 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#07111a]/80 px-3 py-1.5 text-[11px] text-slate-300 backdrop-blur-md">
+            <Layers3 size={13} />
+            {floors.length} mapped floors loaded
+          </div>
+
+          <div className="pointer-events-none absolute left-4 top-24 hidden max-w-xs items-center gap-2 rounded-xl border border-white/10 bg-[#07111a]/80 px-3 py-2 text-[11px] leading-4 text-slate-300 backdrop-blur-md md:flex">
+            <MousePointer2 size={14} className="shrink-0 text-cyan-300" />
+            Drag to pan. Hold Control while dragging, or use the rotate buttons,
+            to orbit a full 360° around the building.
+          </div>
+
           <div className="absolute bottom-4 left-4 max-w-sm rounded-2xl border border-white/10 bg-[#07111a]/90 p-3 text-xs text-slate-300 shadow-xl backdrop-blur-md">
             <div className="flex items-center gap-2 font-medium text-white">
               <MapPin size={15} className="text-cyan-300" />
               {selectedSpace}
+            </div>
+            <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+              <Search size={13} />
+              The top search box now finds mapped room names when you press Enter.
             </div>
           </div>
 
@@ -389,11 +636,6 @@ function DemoMapContent() {
               {locationState.message}
             </p>
           </div>
-
-          <div className="pointer-events-none absolute left-4 top-14 inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#07111a]/80 px-3 py-1.5 text-[11px] text-slate-300 backdrop-blur-md">
-            <Layers3 size={13} />
-            {floors.length} mapped floors loaded
-          </div>
         </>
       )}
     </div>
@@ -410,7 +652,7 @@ function DemoMap() {
       const target = findDashboardMapPanel()
 
       if (target) {
-        target.style.minHeight = '48rem'
+        target.style.minHeight = '56rem'
         restoreFloorControls = hidePlaceholderFloorButtons()
         setPortalTarget(target)
         return true
