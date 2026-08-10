@@ -8,7 +8,8 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react'
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 
 type TemplateVariable = {
