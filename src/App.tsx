@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router'
 import SiteLayout from './components/layout/SiteLayout'
 import DashboardPage from './features/activation/DashboardPage'
 import DemoMap from './features/mappedin/DemoMap'
+import SynthesiaDemoPage from './features/synthesia/SynthesiaDemoPage'
 import AboutPage from './pages/AboutPage'
 import ContactPage from './pages/ContactPage'
 import HomePage from './pages/HomePage'
@@ -28,6 +29,8 @@ function App() {
           </>
         }
       />
+
+      <Route path="/demo0" element={<SynthesiaDemoPage />} />
     </Routes>
   )
 }
