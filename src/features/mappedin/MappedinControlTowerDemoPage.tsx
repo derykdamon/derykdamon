@@ -22,12 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 
-type TokenPayload = {
-  accessToken?: string
-  mapId?: string
-  error?: string
-}
-
+type TokenPayload = { accessToken?: string; mapId?: string; error?: string }
 type LoadState = 'loading' | 'ready' | 'error'
 type FloorOption = { id: string; name: string; elevation: number }
 type SpaceOption = { id: string; name: string; floorName: string; raw: any }
@@ -81,7 +76,6 @@ function MappedinControlTowerDemoPage() {
   const [uiVisible, setUiVisible] = useState(true)
   const [cameraMode, setCameraMode] = useState<'orbit' | 'top' | 'walkthrough'>('orbit')
   const [bearing, setBearing] = useState(0)
-  const [pitch, setPitch] = useState(58)
   const [orbiting, setOrbiting] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [locationState, setLocationState] = useState<LocationState>({
@@ -105,7 +99,6 @@ function MappedinControlTowerDemoPage() {
     bearingRef.current = normalizedBearing
     pitchRef.current = normalizedPitch
     setBearing(normalizedBearing)
-    setPitch(normalizedPitch)
     mapView.Camera.set({ bearing: normalizedBearing, pitch: normalizedPitch })
   }, [])
 
@@ -181,11 +174,7 @@ function MappedinControlTowerDemoPage() {
         bearingRef.current = nextBearing
         setBearing(nextBearing)
       }
-      if (typeof transform.pitch === 'number') {
-        const nextPitch = Math.round(transform.pitch)
-        pitchRef.current = nextPitch
-        setPitch(nextPitch)
-      }
+      if (typeof transform.pitch === 'number') pitchRef.current = Math.round(transform.pitch)
     })
 
     mapView.on('click', (event: any) => {
@@ -225,7 +214,6 @@ function MappedinControlTowerDemoPage() {
   }, [loadMap, reloadKey])
 
   const firstMatch = visibleSpaces[0]
-
   const changeFloor = (floorId: string) => mapViewRef.current?.setFloor(floorId)
 
   const toggleLabels = async () => {
@@ -315,9 +303,7 @@ function MappedinControlTowerDemoPage() {
             <AlertTriangle className="mx-auto text-red-300" size={34} />
             <h1 className="mt-4 text-xl font-semibold">Map failed to load</h1>
             <p className="mt-3 text-sm text-slate-300">{errorMessage}</p>
-            <button className="mt-6 rounded-xl bg-white px-5 py-2 text-sm font-semibold text-slate-950" type="button" onClick={() => setReloadKey((value) => value + 1)}>
-              Try again
-            </button>
+            <button className="mt-6 rounded-xl bg-white px-5 py-2 text-sm font-semibold text-slate-950" type="button" onClick={() => setReloadKey((value) => value + 1)}>Try again</button>
           </div>
         </div>
       )}
@@ -330,9 +316,7 @@ function MappedinControlTowerDemoPage() {
           </div>
 
           <div className="absolute right-6 top-5 z-30 flex items-center gap-2">
-            <button type="button" onClick={() => setUiVisible((value) => !value)} className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-slate-200 backdrop-blur-xl">
-              {uiVisible ? 'Hide UI' : 'Show UI'}
-            </button>
+            <button type="button" onClick={() => setUiVisible((value) => !value)} className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-slate-200 backdrop-blur-xl">{uiVisible ? 'Hide UI' : 'Show UI'}</button>
             <button type="button" onClick={() => void enterFullscreen()} className="rounded-xl border border-white/10 bg-slate-950/80 p-2.5 text-slate-200 backdrop-blur-xl" aria-label="Fullscreen"><Expand size={17} /></button>
             <Link to="/" className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs font-semibold text-slate-200 backdrop-blur-xl"><ArrowLeft className="mr-1 inline" size={14} /> Website</Link>
           </div>
@@ -340,52 +324,20 @@ function MappedinControlTowerDemoPage() {
           {uiVisible && (
             <>
               <aside className="absolute bottom-6 left-6 top-24 z-20 flex w-[24rem] flex-col rounded-3xl border border-white/10 bg-slate-950/82 shadow-2xl backdrop-blur-xl">
-                <div className="border-b border-white/10 p-5">
-                  <label className="relative block">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} />
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      onKeyDown={(event) => event.key === 'Enter' && firstMatch && focusSpace(firstMatch)}
-                      placeholder="Search mapped rooms"
-                      className="w-full rounded-xl border border-white/10 bg-white/[0.06] py-3 pl-10 pr-4 text-sm outline-none placeholder:text-slate-500 focus:border-cyan-300/50"
-                    />
-                  </label>
-                </div>
-
+                <div className="border-b border-white/10 p-5"><label className="relative block"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && firstMatch && focusSpace(firstMatch)} placeholder="Search mapped rooms" className="w-full rounded-xl border border-white/10 bg-white/[0.06] py-3 pl-10 pr-4 text-sm outline-none placeholder:text-slate-500 focus:border-cyan-300/50" /></label></div>
                 <div className="border-b border-white/10 p-5">
                   <div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Floors</p><span className="text-xs text-slate-500">{floors.length} loaded</span></div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {floors.map((floor) => (
-                      <button key={floor.id} type="button" onClick={() => changeFloor(floor.id)} className={`rounded-xl border px-3 py-2 text-left text-sm transition ${currentFloorId === floor.id ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10'}`}>
-                        {floor.name}
-                      </button>
-                    ))}
-                  </div>
+                  <div className="grid grid-cols-2 gap-2">{floors.map((floor) => <button key={floor.id} type="button" onClick={() => changeFloor(floor.id)} className={`rounded-xl border px-3 py-2 text-left text-sm transition ${currentFloorId === floor.id ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10'}`}>{floor.name}</button>)}</div>
                 </div>
-
                 <div className="min-h-0 flex-1 overflow-y-auto p-5">
                   <div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Spaces</p><span className="text-xs text-slate-500">{spaces.length} named</span></div>
-                  <div className="space-y-2">
-                    {visibleSpaces.map((space) => (
-                      <button key={space.id} type="button" onClick={() => focusSpace(space)} className={`w-full rounded-xl border px-3 py-2 text-left transition ${selectedSpaceId === space.id ? 'border-cyan-300/50 bg-cyan-300/15 text-white' : 'border-white/10 bg-white/[0.035] text-slate-300 hover:bg-white/[0.08]'}`}>
-                        <span className="block truncate text-sm font-medium">{space.name}</span>
-                        <span className="mt-1 block truncate text-[11px] text-slate-500">{space.floorName} · {space.id}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <div className="space-y-2">{visibleSpaces.map((space) => <button key={space.id} type="button" onClick={() => focusSpace(space)} className={`w-full rounded-xl border px-3 py-2 text-left transition ${selectedSpaceId === space.id ? 'border-cyan-300/50 bg-cyan-300/15 text-white' : 'border-white/10 bg-white/[0.035] text-slate-300 hover:bg-white/[0.08]'}`}><span className="block truncate text-sm font-medium">{space.name}</span><span className="mt-1 block truncate text-[11px] text-slate-500">{space.floorName} · {space.id}</span></button>)}</div>
                 </div>
               </aside>
 
               <section className="absolute bottom-6 right-6 z-20 w-[26rem] rounded-3xl border border-white/10 bg-slate-950/82 p-5 shadow-2xl backdrop-blur-xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300">Selected mapped location</p>
-                <h2 className="mt-3 text-2xl font-semibold">{selectedName}</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-400">Click labels, choose a room, or search by name. This panel is ready for equipment, low-voltage, QC, photo, and document data.</p>
-                <div className="mt-5 grid grid-cols-3 gap-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><Layers3 className="text-cyan-300" size={18} /><p className="mt-2 text-lg font-semibold">{floors.length}</p><p className="text-[11px] text-slate-500">floors</p></div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><MapPin className="text-cyan-300" size={18} /><p className="mt-2 text-lg font-semibold">{spaces.length}</p><p className="text-[11px] text-slate-500">spaces</p></div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><Compass className="text-cyan-300" size={18} /><p className="mt-2 text-lg font-semibold">{Math.round(bearing)}°</p><p className="text-[11px] text-slate-500">bearing</p></div>
-                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300">Selected mapped location</p><h2 className="mt-3 text-2xl font-semibold">{selectedName}</h2><p className="mt-2 text-sm leading-6 text-slate-400">Click labels, choose a room, or search by name. This panel is ready for equipment, low-voltage, QC, photo, and document data.</p>
+                <div className="mt-5 grid grid-cols-3 gap-3"><div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><Layers3 className="text-cyan-300" size={18} /><p className="mt-2 text-lg font-semibold">{floors.length}</p><p className="text-[11px] text-slate-500">floors</p></div><div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><MapPin className="text-cyan-300" size={18} /><p className="mt-2 text-lg font-semibold">{spaces.length}</p><p className="text-[11px] text-slate-500">spaces</p></div><div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><Compass className="text-cyan-300" size={18} /><p className="mt-2 text-lg font-semibold">{Math.round(bearing)}°</p><p className="text-[11px] text-slate-500">bearing</p></div></div>
                 <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] p-3"><button type="button" onClick={requestLocation} className="inline-flex items-center gap-2 rounded-xl bg-cyan-300 px-3 py-2 text-xs font-bold text-slate-950"><LocateFixed size={15} /> Use my location</button><p className="mt-2 text-xs leading-5 text-slate-400">{locationState.message}</p></div>
               </section>
 
@@ -400,9 +352,7 @@ function MappedinControlTowerDemoPage() {
                 <button type="button" onClick={resetView} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10"><RotateCcw className="mr-1 inline" size={15} /> Reset</button>
               </div>
 
-              <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/75 px-4 py-2 text-xs text-slate-300 shadow-2xl backdrop-blur-xl">
-                <Tags className="mr-2 inline text-cyan-300" size={14} /> Reliable 360° control is in the camera bar: rotate, pitch, top view, reset, and auto-orbit.
-              </div>
+              <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/75 px-4 py-2 text-xs text-slate-300 shadow-2xl backdrop-blur-xl"><Tags className="mr-2 inline text-cyan-300" size={14} /> Reliable 360° control is in the camera bar: rotate, pitch, top view, reset, and auto-orbit.</div>
             </>
           )}
         </>
