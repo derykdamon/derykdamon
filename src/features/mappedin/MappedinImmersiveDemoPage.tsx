@@ -16,7 +16,6 @@ import {
   LoaderCircle,
   LocateFixed,
   MapPin,
-  MousePointerClick,
   PanelLeftClose,
   PanelLeftOpen,
   RotateCcw,
@@ -94,10 +93,6 @@ async function addPersistentLabels(mapView: MapView, mapData: MapData) {
   )
 }
 
-function getFloorNameForSpace(mapView: MapView, fallback?: string) {
-  return mapView.currentFloor?.name || fallback || 'Current floor'
-}
-
 function MappedinImmersiveDemoPage() {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
@@ -119,12 +114,12 @@ function MappedinImmersiveDemoPage() {
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [chromeVisible, setChromeVisible] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [simulatedBlueDot, setSimulatedBlueDot] = useState(false)
   const [locationState, setLocationState] = useState<LocationState>({
     status: 'idle',
     message:
-      'Location is off. Browser GPS can confirm your real-world coordinates, but an indoor blue dot requires an on-site indoor positioning source.',
+      'Location is off. Browser GPS can report your true coordinates, but a reliable indoor blue dot requires on-site indoor positioning.',
   })
-  const [simulatedBlueDot, setSimulatedBlueDot] = useState(false)
 
   const selectedFloor = useMemo(
     () => floors.find((floor) => floor.id === currentFloorId),
@@ -133,13 +128,14 @@ function MappedinImmersiveDemoPage() {
 
   const filteredSpaces = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
-    if (!query) return spaces.slice(0, 40)
-    return spaces
-      .filter((space) => space.name.toLowerCase().includes(query))
-      .slice(0, 60)
+    const visibleSpaces = query
+      ? spaces.filter((space) => space.name.toLowerCase().includes(query))
+      : spaces
+
+    return visibleSpaces.slice(0, 60)
   }, [searchQuery, spaces])
 
-  const focusSpace = useCallback((spaceOption: SpaceOption) => {
+  const selectSpace = useCallback((spaceOption: SpaceOption) => {
     const mapView = mapViewRef.current
     if (!mapView) return
 
@@ -147,7 +143,7 @@ function MappedinImmersiveDemoPage() {
     setSelectedLocation({
       id: spaceOption.id,
       name: spaceOption.name,
-      floorName: getFloorNameForSpace(mapView, spaceOption.floorName),
+      floorName: mapView.currentFloor?.name || spaceOption.floorName,
     })
   }, [])
 
@@ -196,7 +192,7 @@ function MappedinImmersiveDemoPage() {
       .filter((space) => Boolean(space.name?.trim()))
       .map((space) => ({
         id: space.id,
-        name: space.name.trim(),
+        name: (space.name ?? '').trim(),
         floorName: mapView.currentFloor?.name || 'Mapped floor',
         space,
       }))
@@ -232,12 +228,12 @@ function MappedinImmersiveDemoPage() {
     })
 
     mapView.on('click', (event) => {
-      const typedEvent = event as typeof event & {
-        coordinate?: { latitude?: number; longitude?: number }
-      }
+      const floor = event.floors?.[0] ?? mapView.currentFloor
       const space = event.spaces?.[0]
       const label = event.labels?.[0]
-      const floor = event.floors?.[0] ?? mapView.currentFloor
+      const coordinate = event.coordinate as
+        | { latitude?: number; longitude?: number }
+        | undefined
 
       if (space) {
         const name = space.name?.trim() || 'Unnamed mapped location'
@@ -246,8 +242,8 @@ function MappedinImmersiveDemoPage() {
           id: space.id,
           name,
           floorName: floor.name || `Level ${floor.elevation}`,
-          latitude: typedEvent.coordinate?.latitude,
-          longitude: typedEvent.coordinate?.longitude,
+          latitude: coordinate?.latitude,
+          longitude: coordinate?.longitude,
         })
         return
       }
@@ -257,6 +253,8 @@ function MappedinImmersiveDemoPage() {
           id: 'label-selection',
           name: label.text,
           floorName: floor.name || `Level ${floor.elevation}`,
+          latitude: coordinate?.latitude,
+          longitude: coordinate?.longitude,
         })
       }
     })
@@ -367,16 +365,16 @@ function MappedinImmersiveDemoPage() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude, accuracy } = position.coords
-        const indoorQuality =
+        const quality =
           accuracy <= 15
-            ? 'Good device accuracy, but floor-level indoor positioning still requires an indoor positioning system.'
+            ? 'Good device accuracy, but floor-level indoor positioning still requires an indoor positioning source.'
             : accuracy <= 50
               ? 'Useful general accuracy, but not reliable enough for room-level indoor blue dot.'
               : 'Too broad for indoor blue dot placement.'
 
         setLocationState({
           status: 'ready',
-          message: `${latitude.toFixed(5)}, ${longitude.toFixed(5)} · ±${Math.round(accuracy)} m. ${indoorQuality}`,
+          message: `${latitude.toFixed(5)}, ${longitude.toFixed(5)} · ±${Math.round(accuracy)} m. ${quality}`,
         })
       },
       (error) => {
@@ -390,10 +388,6 @@ function MappedinImmersiveDemoPage() {
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
     )
-  }
-
-  const clearSelection = () => {
-    setSelectedLocation(null)
   }
 
   return (
@@ -412,7 +406,7 @@ function MappedinImmersiveDemoPage() {
             </p>
             <p className="mt-2 max-w-sm text-sm leading-6 text-slate-400">
               Building a full-screen Mappedin command center with floors,
-              labels, search, camera control, and location tools.
+              labels, search, camera controls, and location tools.
             </p>
           </div>
         </div>
@@ -682,7 +676,7 @@ function MappedinImmersiveDemoPage() {
                           <button
                             key={space.id}
                             type="button"
-                            onClick={() => focusSpace(space)}
+                            onClick={() => selectSpace(space)}
                             className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-white hover:text-slate-950"
                           >
                             <MapPin size={14} className="text-cyan-700" />
@@ -794,7 +788,7 @@ function MappedinImmersiveDemoPage() {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={clearSelection}
+                      onClick={() => setSelectedLocation(null)}
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium transition hover:bg-slate-50"
                     >
                       Clear selection
