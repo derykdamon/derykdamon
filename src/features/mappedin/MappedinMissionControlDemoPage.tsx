@@ -6,7 +6,6 @@ import {
   Eye,
   EyeOff,
   Expand,
-  Layers3,
   LoaderCircle,
   LocateFixed,
   MapPin,
@@ -20,7 +19,6 @@ import {
   RotateCcw,
   RotateCw,
   Search,
-  Tags,
   Target,
   X,
 } from 'lucide-react'
