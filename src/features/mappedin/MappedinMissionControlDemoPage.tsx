@@ -1,29 +1,27 @@
 import { getMapData, show3dMap } from '@mappedin/mappedin-js'
 import {
-  Activity,
   AlertTriangle,
   ArrowLeft,
-  Boxes,
-  Building2,
-  Camera,
-  CheckCircle2,
-  ChevronRight,
-  ClipboardList,
   Compass,
   Eye,
   EyeOff,
-  FileText,
+  Expand,
   Layers3,
   LoaderCircle,
+  LocateFixed,
   MapPin,
-  Maximize2,
-  Network,
+  Minus,
+  Navigation,
+  PanelRightClose,
+  PanelRightOpen,
   Play,
+  Plus,
+  Radar,
   RotateCcw,
+  RotateCw,
   Search,
-  ShieldCheck,
-  Sparkles,
   Tags,
+  Target,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -46,44 +44,31 @@ type FloorOption = {
 type SpaceOption = {
   id: string
   name: string
+  floorId: string
   floorName: string
   raw: any
 }
 
-type OverlayState = {
-  readiness: boolean
-  equipment: boolean
-  lowVoltage: boolean
-  qc: boolean
-  documents: boolean
+type LocationState = {
+  status: 'off' | 'requesting' | 'ready' | 'error'
+  message: string
 }
-
-const readinessMetrics = [
-  { label: 'Equipment', value: 92, icon: Boxes },
-  { label: 'Low voltage', value: 78, icon: Network },
-  { label: 'QC closeout', value: 86, icon: ShieldCheck },
-  { label: 'Documents', value: 71, icon: FileText },
-]
-
-const simulatedIssues = [
-  'Missing final device label photo',
-  'Patch panel verification pending',
-  'UPS/PDU runtime confirmation needed',
-]
 
 function safeName(value: unknown, fallback: string) {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
 
-function getFloorNameForSpace(space: any, fallback: string) {
-  return safeName(space?.floor?.name, fallback)
+function floorRank(floor: FloorOption) {
+  const name = floor.name.toLowerCase()
+  if (name.includes('ground')) return 0
+  return Number.isFinite(floor.elevation) ? floor.elevation + 10 : 999
 }
 
 async function rebuildLabels(mapView: any, spaces: SpaceOption[]) {
   mapView.Labels.removeAll()
 
   await Promise.all(
-    spaces.slice(0, 450).map((space) =>
+    spaces.slice(0, 650).map((space) =>
       mapView.Labels.add(space.raw, space.name, {
         interactive: true,
         enabled: true,
@@ -91,11 +76,11 @@ async function rebuildLabels(mapView: any, spaces: SpaceOption[]) {
         appearance: {
           margin: 8,
           maxLines: 2,
-          maxWidth: 160,
-          textSize: 11,
+          maxWidth: 170,
+          textSize: 11.5,
           textColor: '#111827',
           textOutlineColor: '#ffffff',
-          pinColor: '#164e63',
+          pinColor: '#0f172a',
           pinOutlineColor: '#ffffff',
         },
       }),
@@ -108,7 +93,11 @@ function MappedinMissionControlDemoPage() {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapViewRef = useRef<any>(null)
   const spacesRef = useRef<SpaceOption[]>([])
-  const tourTimerRef = useRef<number | null>(null)
+  const selectedRef = useRef<SpaceOption | null>(null)
+  const orbitTimerRef = useRef<number | null>(null)
+  const bearingRef = useRef(0)
+  const pitchRef = useRef(50)
+  const zoomRef = useRef(15)
 
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
@@ -119,32 +108,97 @@ function MappedinMissionControlDemoPage() {
   const [currentFloorId, setCurrentFloorId] = useState('')
   const [selectedSpace, setSelectedSpace] = useState<SpaceOption | null>(null)
   const [labelsVisible, setLabelsVisible] = useState(true)
-  const [sidePanelOpen, setSidePanelOpen] = useState(true)
-  const [tourRunning, setTourRunning] = useState(false)
-  const [statusMessage, setStatusMessage] = useState('Select a space to inspect room-level operational data.')
-  const [overlays, setOverlays] = useState<OverlayState>({
-    readiness: true,
-    equipment: true,
-    lowVoltage: true,
-    qc: true,
-    documents: true,
+  const [uiVisible, setUiVisible] = useState(true)
+  const [drawerOpen, setDrawerOpen] = useState(true)
+  const [cameraMode, setCameraMode] = useState<'campus' | 'top' | 'room'>('campus')
+  const [bearing, setBearing] = useState(0)
+  const [pitch, setPitch] = useState(50)
+  const [zoom, setZoom] = useState(15)
+  const [orbiting, setOrbiting] = useState(false)
+  const [statusMessage, setStatusMessage] = useState(
+    'Campus context view. Use map controls for guaranteed rotate and pitch if trackpad modifiers do not work.',
+  )
+  const [locationState, setLocationState] = useState<LocationState>({
+    status: 'off',
+    message: 'Browser location has not been requested.',
   })
 
   const filteredSpaces = useMemo(() => {
     const value = query.trim().toLowerCase()
-    if (!value) return spaces.slice(0, 60)
-    return spaces.filter((space) => space.name.toLowerCase().includes(value)).slice(0, 80)
+    const source = value
+      ? spaces.filter((space) => space.name.toLowerCase().includes(value))
+      : spaces
+    return source.slice(0, value ? 100 : 40)
   }, [query, spaces])
 
-  const focusSpace = useCallback((space: SpaceOption) => {
+  const applyCamera = useCallback((nextBearing: number, nextPitch: number, nextZoom = zoomRef.current) => {
     const mapView = mapViewRef.current
     if (!mapView) return
 
-    mapView.Camera.focusOn(space.raw)
-    mapView.Camera.set({ pitch: 55 })
-    setSelectedSpace(space)
-    setStatusMessage(`${space.name} selected. Operational data below is simulated until linked to the Mappedin space ID.`)
+    const normalizedBearing = ((nextBearing % 360) + 360) % 360
+    const normalizedPitch = Math.max(0, Math.min(75, nextPitch))
+    const normalizedZoom = Math.max(12, Math.min(21, nextZoom))
+
+    bearingRef.current = normalizedBearing
+    pitchRef.current = normalizedPitch
+    zoomRef.current = normalizedZoom
+    setBearing(Math.round(normalizedBearing))
+    setPitch(Math.round(normalizedPitch))
+    setZoom(Number(normalizedZoom.toFixed(1)))
+
+    try {
+      mapView.Camera.set({
+        bearing: normalizedBearing,
+        pitch: normalizedPitch,
+        zoom: normalizedZoom,
+        zoomLevel: normalizedZoom,
+      })
+    } catch {
+      mapView.Camera.set({ bearing: normalizedBearing, pitch: normalizedPitch })
+    }
   }, [])
+
+  const setCampusView = useCallback(() => {
+    const mapView = mapViewRef.current
+    if (!mapView) return
+
+    mapView.Camera.focusOn(mapView.currentFloor)
+    applyCamera(0, 48, 14.2)
+    setCameraMode('campus')
+    setStatusMessage('Campus context view enabled. Pan or zoom out to see surrounding roads and site context.')
+  }, [applyCamera])
+
+  const focusSpace = useCallback(
+    (space: SpaceOption) => {
+      const mapView = mapViewRef.current
+      if (!mapView) return
+
+      if (selectedRef.current) {
+        mapView.updateState(selectedRef.current.raw, {
+          interactive: true,
+          hoverColor: '#38bdf8',
+          color: undefined,
+        })
+      }
+
+      if (space.floorId && space.floorId !== currentFloorId) {
+        mapView.setFloor(space.floorId)
+      }
+
+      selectedRef.current = space
+      mapView.updateState(space.raw, {
+        interactive: true,
+        color: '#22d3ee',
+        hoverColor: '#67e8f9',
+      })
+      mapView.Camera.focusOn(space.raw)
+      applyCamera(bearingRef.current, Math.max(pitchRef.current, 55), Math.max(zoomRef.current, 16.5))
+      setSelectedSpace(space)
+      setCameraMode('room')
+      setStatusMessage(`${space.name} selected. This is the live Mappedin space; the operational records are not linked yet.`)
+    },
+    [applyCamera, currentFloorId],
+  )
 
   const loadMap = useCallback(async () => {
     const mapElement = mapElementRef.current
@@ -155,16 +209,19 @@ function MappedinMissionControlDemoPage() {
 
     const tokenResponse = await fetch('/api/mappedin-token')
     const tokenPayload = (await tokenResponse.json()) as TokenPayload
-
     if (!tokenResponse.ok || !tokenPayload.accessToken || !tokenPayload.mapId) {
       throw new Error(tokenPayload.error ?? 'Mappedin token configuration could not be loaded.')
     }
 
     const mapData = await getMapData({ accessToken: tokenPayload.accessToken, mapId: tokenPayload.mapId })
     const mapView = await show3dMap(mapElement, mapData)
-
     mapViewRef.current = mapView
-    mapView.Camera.interactions.set({ pan: true, zoom: true, bearingAndPitch: true })
+
+    mapView.Camera.interactions.set({
+      pan: true,
+      zoom: true,
+      bearingAndPitch: true,
+    })
 
     const floorOptions: FloorOption[] = mapData
       .getByType('floor')
@@ -173,7 +230,7 @@ function MappedinMissionControlDemoPage() {
         name: safeName(floor.name, `Level ${floor.elevation ?? ''}`),
         elevation: Number(floor.elevation ?? 0),
       }))
-      .sort((a: FloorOption, b: FloorOption) => b.elevation - a.elevation)
+      .sort((a: FloorOption, b: FloorOption) => floorRank(a) - floorRank(b))
 
     const currentFloorName = safeName(mapView.currentFloor?.name, 'Current floor')
     const spaceOptions: SpaceOption[] = mapData
@@ -182,7 +239,8 @@ function MappedinMissionControlDemoPage() {
       .map((space: any) => ({
         id: String(space.id),
         name: safeName(space.name, 'Unnamed mapped space'),
-        floorName: getFloorNameForSpace(space, currentFloorName),
+        floorId: String(space.floor?.id ?? mapView.currentFloor?.id ?? ''),
+        floorName: safeName(space.floor?.name, currentFloorName),
         raw: space,
       }))
       .sort((a: SpaceOption, b: SpaceOption) => a.name.localeCompare(b.name))
@@ -203,8 +261,23 @@ function MappedinMissionControlDemoPage() {
 
     mapView.on('floor-change', (event: any) => {
       setCurrentFloorId(event.floor.id)
-      mapView.Camera.focusOn(event.floor)
-      mapView.Camera.set({ pitch: 55 })
+      setStatusMessage(`${safeName(event.floor.name, 'Floor')} selected. Floors are ordered from Ground upward.`)
+    })
+
+    mapView.on('camera-change', (transform: any) => {
+      if (typeof transform.bearing === 'number') {
+        const nextBearing = ((transform.bearing % 360) + 360) % 360
+        bearingRef.current = nextBearing
+        setBearing(Math.round(nextBearing))
+      }
+      if (typeof transform.pitch === 'number') {
+        pitchRef.current = transform.pitch
+        setPitch(Math.round(transform.pitch))
+      }
+      if (typeof transform.zoom === 'number') {
+        zoomRef.current = transform.zoom
+        setZoom(Number(transform.zoom.toFixed(1)))
+      }
     })
 
     mapView.on('click', (event: any) => {
@@ -224,10 +297,9 @@ function MappedinMissionControlDemoPage() {
       }
     })
 
-    mapView.Camera.focusOn(mapView.currentFloor)
-    mapView.Camera.set({ pitch: 55, bearing: 0 })
     setLoadState('ready')
-  }, [focusSpace])
+    window.setTimeout(() => setCampusView(), 400)
+  }, [focusSpace, setCampusView])
 
   useEffect(() => {
     let cancelled = false
@@ -240,15 +312,21 @@ function MappedinMissionControlDemoPage() {
 
     return () => {
       cancelled = true
-      if (tourTimerRef.current) window.clearInterval(tourTimerRef.current)
-      tourTimerRef.current = null
+      if (orbitTimerRef.current) window.clearInterval(orbitTimerRef.current)
+      orbitTimerRef.current = null
       mapViewRef.current?.destroy()
       mapViewRef.current = null
     }
   }, [loadMap, reloadKey])
 
   const changeFloor = (floorId: string) => {
-    mapViewRef.current?.setFloor(floorId)
+    const mapView = mapViewRef.current
+    if (!mapView) return
+    mapView.setFloor(floorId)
+    window.setTimeout(() => {
+      if (cameraMode === 'campus') setCampusView()
+      else applyCamera(bearingRef.current, pitchRef.current, zoomRef.current)
+    }, 150)
   }
 
   const toggleLabels = async () => {
@@ -264,17 +342,37 @@ function MappedinMissionControlDemoPage() {
     }
   }
 
-  const rotate = (degrees: number) => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
-    mapView.Camera.set({ bearing: degrees, pitch: 55 })
+  const toggleTopDown = () => {
+    const nextTopDown = cameraMode !== 'top'
+    setCameraMode(nextTopDown ? 'top' : 'campus')
+    applyCamera(bearingRef.current, nextTopDown ? 0 : 48, nextTopDown ? 15 : 14.2)
   }
 
-  const reset = () => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
-    mapView.Camera.focusOn(selectedSpace?.raw ?? mapView.currentFloor)
-    mapView.Camera.set({ bearing: 0, pitch: 55 })
+  const toggleOrbit = () => {
+    if (orbitTimerRef.current) {
+      window.clearInterval(orbitTimerRef.current)
+      orbitTimerRef.current = null
+      setOrbiting(false)
+      return
+    }
+
+    setOrbiting(true)
+    orbitTimerRef.current = window.setInterval(() => {
+      applyCamera((bearingRef.current + 2.5) % 360, Math.max(pitchRef.current, 48), zoomRef.current)
+    }, 120)
+  }
+
+  const resetSelection = () => {
+    if (selectedRef.current && mapViewRef.current) {
+      mapViewRef.current.updateState(selectedRef.current.raw, {
+        interactive: true,
+        hoverColor: '#38bdf8',
+        color: undefined,
+      })
+    }
+    selectedRef.current = null
+    setSelectedSpace(null)
+    setCampusView()
   }
 
   const enterFullscreen = async () => {
@@ -283,32 +381,27 @@ function MappedinMissionControlDemoPage() {
     else await rootRef.current.requestFullscreen()
   }
 
-  const runTour = () => {
-    if (tourTimerRef.current) {
-      window.clearInterval(tourTimerRef.current)
-      tourTimerRef.current = null
-      setTourRunning(false)
-      setStatusMessage('Guided tour stopped.')
+  const requestLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationState({ status: 'error', message: 'This browser does not support geolocation.' })
       return
     }
 
-    const candidates = spacesRef.current.slice(0, 12)
-    if (candidates.length === 0) return
-
-    let index = 0
-    setTourRunning(true)
-    setStatusMessage('Guided tour running through mapped spaces.')
-    focusSpace(candidates[index])
-
-    tourTimerRef.current = window.setInterval(() => {
-      index = (index + 1) % candidates.length
-      focusSpace(candidates[index])
-    }, 3500)
+    setLocationState({ status: 'requesting', message: 'Waiting for browser location permission…' })
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords
+        setLocationState({
+          status: 'ready',
+          message: `${latitude.toFixed(5)}, ${longitude.toFixed(5)} · accuracy ${Math.round(accuracy)} m. Off-site coordinates are shown for demo only and are not plotted as an indoor Blue Dot.`,
+        })
+      },
+      () => setLocationState({ status: 'error', message: 'Location could not be retrieved or permission was denied.' }),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
+    )
   }
 
-  const setOverlay = (key: keyof OverlayState) => {
-    setOverlays((current) => ({ ...current, [key]: !current[key] }))
-  }
+  const activeFloor = floors.find((floor) => floor.id === currentFloorId)
 
   return (
     <div ref={rootRef} className="relative h-screen overflow-hidden bg-[#020617] text-white">
@@ -318,8 +411,8 @@ function MappedinMissionControlDemoPage() {
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#020617]">
           <div className="rounded-3xl border border-white/10 bg-slate-950/90 p-8 text-center shadow-2xl">
             <LoaderCircle className="mx-auto animate-spin text-cyan-300" size={34} />
-            <p className="mt-5 text-xl font-semibold">Loading ActivationOS Mission Control</p>
-            <p className="mt-2 text-sm text-slate-400">Preparing map, labels, floors, and simulated operational overlays.</p>
+            <p className="mt-5 text-xl font-semibold">Loading Mappedin Mission Control</p>
+            <p className="mt-2 text-sm text-slate-400">Preparing campus context, floors, labels, room search, and camera controls.</p>
           </div>
         </div>
       )}
@@ -339,31 +432,38 @@ function MappedinMissionControlDemoPage() {
 
       {loadState === 'ready' && (
         <>
-          <header className="absolute inset-x-4 top-4 z-30 flex items-center justify-between rounded-3xl border border-white/10 bg-slate-950/80 px-5 py-3 shadow-2xl backdrop-blur-xl">
+          <header className="absolute inset-x-4 top-4 z-30 flex items-center justify-between rounded-3xl border border-white/10 bg-slate-950/78 px-5 py-3 shadow-2xl backdrop-blur-xl">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-300 to-indigo-400 text-slate-950">
-                <Sparkles size={22} />
+                <Radar size={22} />
               </div>
               <div>
-                <p className="text-sm font-semibold">ActivationOS Mission Control</p>
-                <p className="text-xs text-slate-400">Demo3 · digital twin + simulated operational layer</p>
+                <p className="text-sm font-semibold">Mappedin Mission Control</p>
+                <p className="text-xs text-slate-400">Demo3 · full map, campus context, real floors, real labels</p>
               </div>
             </div>
 
-            <div className="hidden items-center gap-2 lg:flex">
+            <div className="hidden min-w-0 max-w-[50vw] items-center gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.04] p-2 lg:flex">
+              <span className="whitespace-nowrap px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Ground → higher</span>
               {floors.map((floor) => (
-                <button key={floor.id} type="button" onClick={() => changeFloor(floor.id)} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${currentFloorId === floor.id ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10'}`}>
+                <button
+                  key={floor.id}
+                  type="button"
+                  onClick={() => changeFloor(floor.id)}
+                  className={`whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold ${currentFloorId === floor.id ? 'border-cyan-300/50 bg-cyan-300/15 text-cyan-100' : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10'}`}
+                  title={`Elevation ${floor.elevation}`}
+                >
                   {floor.name}
                 </button>
               ))}
             </div>
 
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setSidePanelOpen((value) => !value)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">
-                {sidePanelOpen ? 'Hide panel' : 'Show panel'}
+              <button type="button" onClick={() => setUiVisible((value) => !value)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">
+                {uiVisible ? 'Hide UI' : 'Show UI'}
               </button>
               <button type="button" onClick={() => void enterFullscreen()} className="rounded-xl border border-white/10 bg-white/[0.05] p-2.5 text-slate-200" aria-label="Fullscreen">
-                <Maximize2 size={17} />
+                <Expand size={17} />
               </button>
               <Link to="/" className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">
                 <ArrowLeft className="mr-1 inline" size={14} /> Website
@@ -371,124 +471,122 @@ function MappedinMissionControlDemoPage() {
             </div>
           </header>
 
-          <div className="absolute bottom-5 left-5 z-30 flex flex-wrap gap-2 rounded-3xl border border-white/10 bg-slate-950/82 p-2 shadow-2xl backdrop-blur-xl">
-            <button type="button" onClick={() => rotate(0)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><Compass className="mr-1 inline" size={15} />North</button>
-            <button type="button" onClick={() => rotate(90)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">East</button>
-            <button type="button" onClick={() => rotate(180)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">South</button>
-            <button type="button" onClick={() => rotate(270)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">West</button>
-            <button type="button" onClick={() => void toggleLabels()} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">
-              {labelsVisible ? <EyeOff className="mr-1 inline" size={15} /> : <Eye className="mr-1 inline" size={15} />} {labelsVisible ? 'Labels off' : 'Labels on'}
-            </button>
-            <button type="button" onClick={runTour} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${tourRunning ? 'border-emerald-300/50 bg-emerald-300/15 text-emerald-100' : 'border-white/10 bg-white/[0.05] text-slate-200'}`}>
-              <Play className="mr-1 inline" size={15} /> {tourRunning ? 'Stop tour' : 'Guided tour'}
-            </button>
-            <button type="button" onClick={reset} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><RotateCcw className="mr-1 inline" size={15} />Reset</button>
-          </div>
-
-          {sidePanelOpen && (
-            <aside className="absolute bottom-5 right-5 top-24 z-30 flex w-[28rem] flex-col rounded-3xl border border-white/10 bg-slate-950/86 shadow-2xl backdrop-blur-xl">
-              <div className="border-b border-white/10 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300">Room intelligence</p>
-                    <h2 className="mt-2 text-2xl font-semibold">{selectedSpace?.name ?? 'Select a mapped space'}</h2>
-                    <p className="mt-2 text-sm leading-6 text-slate-400">{statusMessage}</p>
-                  </div>
-                  <button type="button" onClick={() => setSidePanelOpen(false)} className="rounded-xl border border-white/10 p-2 text-slate-400 hover:text-white" aria-label="Close panel"><X size={16} /></button>
-                </div>
-              </div>
-
-              <div className="border-b border-white/10 p-5">
+          {uiVisible && (
+            <>
+              <section className="absolute left-5 top-24 z-30 w-[22rem] rounded-3xl border border-white/10 bg-slate-950/78 p-4 shadow-2xl backdrop-blur-xl">
                 <label className="relative block">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} />
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && filteredSpaces[0]) focusSpace(filteredSpaces[0])
-                    }}
-                    placeholder="Search room, department, label"
+                    onKeyDown={(event) => event.key === 'Enter' && filteredSpaces[0] && focusSpace(filteredSpaces[0])}
+                    placeholder="Search mapped rooms / spaces"
                     className="w-full rounded-xl border border-white/10 bg-white/[0.06] py-3 pl-10 pr-4 text-sm outline-none placeholder:text-slate-500 focus:border-cyan-300/50"
                   />
                 </label>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 border-b border-white/10 p-5">
-                {readinessMetrics.map((metric) => {
-                  const MetricIcon = metric.icon
-                  return (
-                    <div key={metric.label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                      <div className="flex items-center gap-2 text-sm text-slate-300"><MetricIcon size={17} className="text-cyan-300" /> {metric.label}</div>
-                      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-indigo-400" style={{ width: `${metric.value}%` }} /></div>
-                      <p className="mt-2 text-xs text-slate-500">{metric.value}% ready</p>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div className="border-b border-white/10 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Operational overlays</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {[
-                    ['readiness', 'Readiness', CheckCircle2],
-                    ['equipment', 'Equipment', Boxes],
-                    ['lowVoltage', 'Low voltage', Network],
-                    ['qc', 'QC', ClipboardList],
-                    ['documents', 'Documents', FileText],
-                  ].map(([key, label, Icon]) => {
-                    const OverlayIcon = Icon as typeof CheckCircle2
-                    const enabled = overlays[key as keyof OverlayState]
-                    return (
-                      <button key={key as string} type="button" onClick={() => setOverlay(key as keyof OverlayState)} className={`rounded-xl border px-3 py-2 text-left text-xs font-semibold ${enabled ? 'border-cyan-300/40 bg-cyan-300/12 text-cyan-100' : 'border-white/10 bg-white/[0.04] text-slate-400'}`}>
-                        <OverlayIcon className="mr-1 inline" size={14} /> {label as string}
-                      </button>
-                    )
-                  })}
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><p className="font-semibold text-white">{floors.length}</p><p className="mt-1 text-slate-500">Floors</p></div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><p className="font-semibold text-white">{spaces.length}</p><p className="mt-1 text-slate-500">Spaces</p></div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><p className="font-semibold text-white">{activeFloor?.name ?? '—'}</p><p className="mt-1 text-slate-500">Active</p></div>
                 </div>
-              </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Mapped spaces</p>
-                <div className="mt-3 space-y-2">
+                <div className="mt-4 max-h-[38vh] space-y-2 overflow-y-auto pr-1">
                   {filteredSpaces.map((space) => (
-                    <button key={space.id} type="button" onClick={() => focusSpace(space)} className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition ${selectedSpace?.id === space.id ? 'border-cyan-300/50 bg-cyan-300/15 text-white' : 'border-white/10 bg-white/[0.035] text-slate-300 hover:bg-white/[0.08]'}`}>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">{space.name}</span>
-                        <span className="block truncate text-[11px] text-slate-500">{space.floorName}</span>
-                      </span>
-                      <ChevronRight className="shrink-0 text-slate-600" size={16} />
+                    <button
+                      key={space.id}
+                      type="button"
+                      onClick={() => focusSpace(space)}
+                      className={`w-full rounded-2xl border p-3 text-left transition ${selectedSpace?.id === space.id ? 'border-cyan-300/50 bg-cyan-300/12' : 'border-white/10 bg-white/[0.035] hover:bg-white/[0.07]'}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <MapPin className="mt-0.5 text-cyan-300" size={16} />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-white">{space.name}</p>
+                          <p className="mt-1 truncate text-xs text-slate-500">{space.floorName}</p>
+                        </div>
+                      </div>
                     </button>
                   ))}
                 </div>
+              </section>
+
+              <section className="absolute bottom-5 left-5 z-30 rounded-3xl border border-white/10 bg-slate-950/80 p-3 shadow-2xl backdrop-blur-xl">
+                <div className="grid grid-cols-4 gap-2">
+                  <button type="button" onClick={setCampusView} className="rounded-xl border border-cyan-300/30 bg-cyan-300/12 px-3 py-2 text-xs font-semibold text-cyan-100"><Navigation className="mr-1 inline" size={14} />Campus</button>
+                  <button type="button" onClick={toggleTopDown} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><Compass className="mr-1 inline" size={14} />{cameraMode === 'top' ? '3D' : 'Top'}</button>
+                  <button type="button" onClick={() => applyCamera(bearing - 25, pitch, zoom)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><RotateCcw className="mr-1 inline" size={14} />Left</button>
+                  <button type="button" onClick={() => applyCamera(bearing + 25, pitch, zoom)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><RotateCw className="mr-1 inline" size={14} />Right</button>
+                  <button type="button" onClick={() => applyCamera(bearing, pitch + 8, zoom)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><Plus className="mr-1 inline" size={14} />Pitch</button>
+                  <button type="button" onClick={() => applyCamera(bearing, pitch - 8, zoom)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><Minus className="mr-1 inline" size={14} />Pitch</button>
+                  <button type="button" onClick={() => applyCamera(bearing, pitch, zoom - 0.8)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><Minus className="mr-1 inline" size={14} />Zoom</button>
+                  <button type="button" onClick={() => applyCamera(bearing, pitch, zoom + 0.8)} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><Plus className="mr-1 inline" size={14} />Zoom</button>
+                  <button type="button" onClick={() => void toggleLabels()} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200">{labelsVisible ? <EyeOff className="mr-1 inline" size={14} /> : <Eye className="mr-1 inline" size={14} />}{labelsVisible ? 'Labels off' : 'Labels on'}</button>
+                  <button type="button" onClick={toggleOrbit} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${orbiting ? 'border-emerald-300/40 bg-emerald-300/15 text-emerald-100' : 'border-white/10 bg-white/[0.05] text-slate-200'}`}><Play className="mr-1 inline" size={14} />Orbit</button>
+                  <button type="button" onClick={requestLocation} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><LocateFixed className="mr-1 inline" size={14} />GPS</button>
+                  <button type="button" onClick={resetSelection} className="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200"><RotateCcw className="mr-1 inline" size={14} />Reset</button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-slate-400">
+                  <div>Bearing: <span className="text-white">{bearing}°</span></div>
+                  <div>Pitch: <span className="text-white">{pitch}°</span></div>
+                  <div>Zoom: <span className="text-white">{zoom}</span></div>
+                </div>
+              </section>
+
+              <section className="absolute bottom-5 right-5 z-30 max-w-[36rem] rounded-3xl border border-white/10 bg-slate-950/78 p-4 shadow-2xl backdrop-blur-xl">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Map instructions</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{statusMessage}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-500">Drag to pan. Scroll or pinch to zoom. Right-click/Control/Command drag may rotate depending on browser and device. The buttons here are the reliable fallback for 360° camera movement.</p>
+                    {locationState.status !== 'off' && <p className="mt-2 text-xs leading-5 text-cyan-100">{locationState.message}</p>}
+                  </div>
+                  <button type="button" onClick={() => setDrawerOpen((value) => !value)} className="rounded-xl border border-white/10 bg-white/[0.05] p-2 text-slate-200" aria-label="Toggle details panel">
+                    {drawerOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+                  </button>
+                </div>
+              </section>
+            </>
+          )}
+
+          {drawerOpen && uiVisible && (
+            <aside className="absolute bottom-40 right-5 top-24 z-30 w-[25rem] rounded-3xl border border-white/10 bg-slate-950/82 p-5 shadow-2xl backdrop-blur-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Selected space</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">{selectedSpace?.name ?? 'No room selected'}</h2>
+                  <p className="mt-2 text-sm text-slate-400">{selectedSpace?.floorName ?? 'Click a room or choose from search.'}</p>
+                </div>
+                <button type="button" onClick={() => setDrawerOpen(false)} className="rounded-xl border border-white/10 bg-white/[0.05] p-2 text-slate-300" aria-label="Close panel"><X size={17} /></button>
+              </div>
+
+              <div className="mt-6 space-y-3">
+                {[
+                  ['Mappedin ID', selectedSpace?.id.slice(0, 18) ?? '—'],
+                  ['Floor source', activeFloor?.name ?? '—'],
+                  ['Label status', labelsVisible ? 'Visible' : 'Hidden'],
+                  ['View mode', cameraMode],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-4 border-b border-white/8 pb-3 text-sm">
+                    <span className="text-slate-500">{label}</span>
+                    <span className="text-right text-slate-200">{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.06] p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-cyan-100"><Target size={16} /> Next product layer</div>
+                <p className="mt-2 text-xs leading-5 text-slate-400">This page is intentionally Mappedin-first. The next layer is linking each selected space ID to ActivationOS equipment, low-voltage, documents, QC, and readiness records.</p>
               </div>
             </aside>
           )}
 
-          <div className="absolute left-5 top-24 z-20 rounded-3xl border border-white/10 bg-slate-950/82 p-4 shadow-2xl backdrop-blur-xl">
-            <div className="flex items-center gap-2 text-sm font-semibold"><Building2 size={17} className="text-cyan-300" /> Robley Rex VAMC</div>
-            <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><Layers3 className="text-cyan-300" size={16} /><p className="mt-2 text-lg font-semibold">{floors.length}</p><p className="text-slate-500">floors</p></div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><MapPin className="text-cyan-300" size={16} /><p className="mt-2 text-lg font-semibold">{spaces.length}</p><p className="text-slate-500">spaces</p></div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><Activity className="text-emerald-300" size={16} /><p className="mt-2 text-lg font-semibold">84%</p><p className="text-slate-500">sim ready</p></div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><Camera className="text-amber-300" size={16} /><p className="mt-2 text-lg font-semibold">18</p><p className="text-slate-500">photo refs</p></div>
-            </div>
-          </div>
-
-          {overlays.qc && (
-            <div className="absolute left-5 top-[25rem] z-20 w-72 rounded-3xl border border-amber-300/20 bg-slate-950/82 p-4 shadow-2xl backdrop-blur-xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300">Simulated open issues</p>
-              <div className="mt-3 space-y-2">
-                {simulatedIssues.map((issue) => (
-                  <div key={issue} className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-xs text-slate-300">{issue}</div>
-                ))}
-              </div>
-            </div>
+          {!uiVisible && (
+            <button type="button" onClick={() => setUiVisible(true)} className="absolute left-5 top-5 z-40 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm font-semibold text-white shadow-2xl backdrop-blur-xl">
+              Show Mappedin controls
+            </button>
           )}
-
-          <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/82 px-4 py-2 text-xs text-slate-300 shadow-2xl backdrop-blur-xl">
-            <Tags className="mr-2 inline text-cyan-300" size={14} />
-            Demo3 treats Mappedin as the spatial source and overlays simulated ActivationOS data until real room records are linked.
-          </div>
         </>
       )}
     </div>
