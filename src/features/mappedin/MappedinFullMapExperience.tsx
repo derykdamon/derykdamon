@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   Expand,
-  Layers3,
   LoaderCircle,
   LocateFixed,
   MapPin,
@@ -34,7 +33,6 @@ type LoadState = 'loading' | 'ready' | 'error'
 type FloorOption = { id: string; name: string; elevation: number }
 type SpaceOption = { id: string; name: string; floorName: string; raw: any }
 type LocationState = { status: 'off' | 'requesting' | 'ready' | 'error'; message: string }
-
 type ExperienceVariant = 'control-tower' | 'mappedin-plus'
 
 type MappedinFullMapExperienceProps = {
@@ -45,7 +43,7 @@ const VARIANT_CONFIG = {
   'control-tower': {
     title: 'Mappedin Control Tower',
     route: 'Demo2',
-    subtitle: 'full campus context, real floors, real labels, camera controls',
+    subtitle: 'full campus context, real floors, labels, search, and camera controls',
     badge: 'Map-first operations console',
     panelTitle: 'Control panel',
   },
@@ -73,6 +71,13 @@ function floorRank(floor: FloorOption) {
   if (name.includes('fifth')) return 5
 
   return floor.elevation
+}
+
+function setCamera(
+  mapView: any,
+  options: { bearing?: number; pitch?: number; zoom?: number },
+) {
+  mapView?.Camera?.set(options as any)
 }
 
 async function addPersistentLabels(mapView: any, spaces: SpaceOption[]) {
@@ -149,29 +154,26 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
     [query, spaces],
   )
 
-  const applyCamera = useCallback(
-    (nextBearing: number, nextPitch: number, nextZoom = zoomRef.current) => {
-      const mapView = mapViewRef.current
-      if (!mapView) return
+  const applyCamera = useCallback((nextBearing: number, nextPitch: number, nextZoom = zoomRef.current) => {
+    const mapView = mapViewRef.current
+    if (!mapView) return
 
-      const normalizedBearing = ((nextBearing % 360) + 360) % 360
-      const normalizedPitch = Math.max(0, Math.min(75, nextPitch))
-      const normalizedZoom = Math.max(12.5, Math.min(19.5, nextZoom))
+    const normalizedBearing = ((nextBearing % 360) + 360) % 360
+    const normalizedPitch = Math.max(0, Math.min(75, nextPitch))
+    const normalizedZoom = Math.max(12.5, Math.min(19.5, nextZoom))
 
-      bearingRef.current = normalizedBearing
-      pitchRef.current = normalizedPitch
-      zoomRef.current = normalizedZoom
-      setBearing(normalizedBearing)
-      setPitch(normalizedPitch)
-      setZoom(normalizedZoom)
-      mapView.Camera.set({
-        bearing: normalizedBearing,
-        pitch: normalizedPitch,
-        zoom: normalizedZoom,
-      })
-    },
-    [],
-  )
+    bearingRef.current = normalizedBearing
+    pitchRef.current = normalizedPitch
+    zoomRef.current = normalizedZoom
+    setBearing(normalizedBearing)
+    setPitch(normalizedPitch)
+    setZoom(normalizedZoom)
+    setCamera(mapView, {
+      bearing: normalizedBearing,
+      pitch: normalizedPitch,
+      zoom: normalizedZoom,
+    })
+  }, [])
 
   const focusCampus = useCallback(() => {
     const mapView = mapViewRef.current
@@ -231,11 +233,11 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
       )
     }
 
-    const mapData = await getMapData({
+    const mapData: any = await getMapData({
       accessToken: tokenPayload.accessToken,
       mapId: tokenPayload.mapId,
     })
-    const mapView = await show3dMap(mapElement, mapData)
+    const mapView: any = await show3dMap(mapElement, mapData)
     mapViewRef.current = mapView
 
     mapView.Camera.interactions.set({
@@ -282,7 +284,7 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
     mapView.on('floor-change', (event: any) => {
       setCurrentFloorId(String(event.floor.id))
       mapView.Camera.focusOn(event.floor)
-      mapView.Camera.set({
+      setCamera(mapView, {
         bearing: bearingRef.current,
         pitch: pitchRef.current,
         zoom: zoomRef.current,
