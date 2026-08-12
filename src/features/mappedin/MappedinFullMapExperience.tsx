@@ -19,7 +19,6 @@ import {
   PanelRightOpen,
   Play,
   Plus,
-  Radar,
   RotateCcw,
   RotateCw,
   Route as RouteIcon,
