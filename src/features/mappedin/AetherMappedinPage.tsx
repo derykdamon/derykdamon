@@ -78,6 +78,7 @@ function AetherMappedinPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
   const [labelsVisible, setLabelsVisible] = useState(true)
   const [searchState, setSearchState] = useState<SearchState>(
     searchSelectors.getState(),
@@ -759,28 +760,31 @@ function AetherMappedinPage() {
   const updateSearch = (nextQuery: string) => {
     if (!nextQuery.trim()) {
       setSuggestions([])
+      setActiveSuggestionIndex(0)
       searchActions.clear()
       return
     }
 
-    setSuggestions(
-      searchActions.suggest(nextQuery, {
-        limit: 6,
-        types: ['building', 'floor', 'space', 'label'],
-      }),
-    )
+    const nextSuggestions = searchActions.suggest(nextQuery, {
+      limit: 8,
+      types: ['building', 'floor', 'space', 'label'],
+    })
+    setSuggestions(nextSuggestions)
+    setActiveSuggestionIndex(0)
   }
 
   const selectSearchResult = (result: SearchResult) => {
     handledSelectionRef.current = null
     searchActions.select(result)
     setSuggestions([])
+    setActiveSuggestionIndex(0)
   }
 
   const selectWorldSpace = (space: WorldSpace) => {
     handledSelectionRef.current = null
     searchActions.select(space.id)
     setSuggestions([])
+    setActiveSuggestionIndex(0)
   }
 
   const setRouteEndpoint = (endpoint: 'origin' | 'destination') => {
@@ -1188,32 +1192,60 @@ function AetherMappedinPage() {
                 value={searchState.query}
                 onChange={(event) => updateSearch(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && suggestions[0]) {
-                    selectSearchResult(suggestions[0].result)
+                  if (event.key === 'ArrowDown' && suggestions.length > 0) {
+                    event.preventDefault()
+                    setActiveSuggestionIndex((current) =>
+                      current >= suggestions.length - 1 ? 0 : current + 1,
+                    )
+                  }
+
+                  if (event.key === 'ArrowUp' && suggestions.length > 0) {
+                    event.preventDefault()
+                    setActiveSuggestionIndex((current) =>
+                      current <= 0 ? suggestions.length - 1 : current - 1,
+                    )
+                  }
+
+                  if (event.key === 'Enter' && suggestions[activeSuggestionIndex]) {
+                    event.preventDefault()
+                    selectSearchResult(suggestions[activeSuggestionIndex].result)
+                  }
+
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setSuggestions([])
+                    setActiveSuggestionIndex(0)
                   }
                 }}
                 placeholder="Search rooms, floors, assets, equipment"
                 className="w-full bg-transparent text-sm font-medium text-slate-100 outline-none placeholder:text-slate-400"
               />
               <p className="truncate text-xs text-slate-500">
-                {suggestions.length > 0
-                  ? `${suggestions.length} live matches`
-                  : selectedSpace?.floorName ?? 'Search the live World model'}
+                {searchState.query.trim()
+                  ? `${searchState.results.length} results from World`
+                  : selectedSpace?.floorName ?? `${worldState.spaces.length} searchable spaces`}
               </p>
             </div>
             <div className="hidden rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-slate-400 sm:block">
-              {searchState.query.trim() ? 'Live' : 'Idle'}
+              {searchState.query.trim()
+                ? `${searchState.results.length} results`
+                : `${worldState.spaces.length} spaces`}
             </div>
           </label>
 
           {suggestions.length > 0 && (
             <div className="absolute left-3 right-3 top-[calc(100%+0.5rem)] overflow-hidden rounded-2xl border border-cyan-100/10 bg-[#061017]/95 shadow-2xl backdrop-blur-2xl">
-              {suggestions.map((suggestion) => (
+              {suggestions.map((suggestion, index) => (
                 <button
                   key={`${suggestion.type}:${suggestion.id}`}
                   type="button"
                   onClick={() => selectSearchResult(suggestion.result)}
-                  className="flex w-full items-center justify-between gap-4 border-b border-white/8 px-4 py-3 text-left transition last:border-b-0 hover:bg-cyan-200/[0.07]"
+                  onMouseEnter={() => setActiveSuggestionIndex(index)}
+                  className={`flex w-full items-center justify-between gap-4 border-b border-white/8 px-4 py-3 text-left transition last:border-b-0 ${
+                    activeSuggestionIndex === index
+                      ? 'bg-cyan-200/[0.12] text-white'
+                      : 'hover:bg-cyan-200/[0.07]'
+                  }`}
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-slate-100">
@@ -1228,6 +1260,12 @@ function AetherMappedinPage() {
                   </span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {searchState.query.trim() && suggestions.length === 0 && (
+            <div className="absolute left-3 right-3 top-[calc(100%+0.5rem)] rounded-2xl border border-cyan-100/10 bg-[#061017]/95 px-4 py-3 text-sm text-slate-400 shadow-2xl backdrop-blur-2xl">
+              0 results in World
             </div>
           )}
         </div>
