@@ -140,6 +140,7 @@ function AetherMappedinPage() {
       duration: 900,
       easing: 'ease-in-out',
     })
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Floor focus' })
   }, [])
 
   const syncPresenceFloor = useCallback((floorId: string) => {
@@ -161,6 +162,22 @@ function AetherMappedinPage() {
       syncPresenceFloor(floorId)
     },
     [syncPresenceFloor],
+  )
+
+  const focusFloorById = useCallback(
+    (floorId: string) => {
+      activateFloor(floorId)
+
+      if (selectionMoveTimerRef.current) {
+        window.clearTimeout(selectionMoveTimerRef.current)
+      }
+
+      selectionMoveTimerRef.current = window.setTimeout(() => {
+        focusCurrentFloor()
+        selectionMoveTimerRef.current = null
+      }, 80)
+    },
+    [activateFloor, focusCurrentFloor],
   )
 
   const createSpaceSelection = useCallback((space: WorldSpace) => ({
@@ -452,6 +469,23 @@ function AetherMappedinPage() {
       { applyZoom: true, animate: true, duration: 700, easing: 'ease-in-out' },
     )
     presenceActions.setCurrentFocus({ type: 'camera', label: 'Top' })
+  }, [])
+
+  const focusPerspectiveCamera = useCallback(() => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+
+    const currentCamera = cameraController.getState()
+    cameraController.setView(
+      {
+        bearing: currentCamera.bearing,
+        pitch: Math.max(currentCamera.pitch, 52),
+        zoom: Math.max(currentCamera.zoom, 15.2),
+        preset: 'perspective',
+      },
+      { applyZoom: true, animate: true, duration: 700, easing: 'ease-in-out' },
+    )
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Perspective' })
   }, [])
 
   const adjustCamera = useCallback(
@@ -1325,7 +1359,7 @@ function AetherMappedinPage() {
                   key={floor.id}
                   type="button"
                   disabled={loadState !== 'ready'}
-                  onClick={() => activateFloor(floor.id)}
+                  onClick={() => focusFloorById(floor.id)}
                   className={`rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
                     currentFloor?.id === floor.id
                       ? 'border-cyan-200/40 bg-cyan-200/[0.14] text-cyan-100'
@@ -1353,6 +1387,8 @@ function AetherMappedinPage() {
               <button type="button" disabled={loadState !== 'ready'} onClick={focusSiteCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Target className="mr-1 inline" size={14} />Site</button>
               <button type="button" disabled={loadState !== 'ready'} onClick={focusBuildingCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Building2 className="mr-1 inline" size={14} />Bldg</button>
               <button type="button" disabled={loadState !== 'ready'} onClick={focusTopCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Compass className="mr-1 inline" size={14} />Top</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusPerspectiveCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Compass className="mr-1 inline" size={14} />Perspective</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusCurrentFloor} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Building2 className="mr-1 inline" size={14} />Floor</button>
               <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue - 25 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw className="mr-1 inline" size={14} />Left</button>
               <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue + 25 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><RotateCw className="mr-1 inline" size={14} />Right</button>
               <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ pitch: cameraPitchValue + 8 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Plus className="mr-1 inline" size={14} />Pitch</button>
@@ -1615,17 +1651,27 @@ function AetherMappedinPage() {
       }
       bottomStatusBar={
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs text-slate-400">
-          <div className="flex items-center gap-3">
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-            <span>Aether Core</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span>Mappedin</span>
-            <span>State: {loadState}</span>
-            <span>
-              Focus:{' '}
-              {currentFocusLabel}
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
+            <span className="shrink-0">Camera</span>
+            <span className="truncate">
+              {Math.round(cameraBearingValue)}° · {Math.round(cameraPitchValue)}° · {cameraZoomValue.toFixed(1)}
             </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusCurrentFloor} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Floor</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusTopCamera} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Top</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusPerspectiveCamera} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">3D</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue - 25 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Rotate -</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue + 25 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Rotate +</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue + 0.7 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Zoom +</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue - 0.7 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Zoom -</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={toggleOrbit} className={`rounded-lg border px-2.5 py-1.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${currentCamera?.orbiting ? 'border-emerald-200/30 bg-emerald-200/[0.12] text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/10'}`}>Orbit</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={resetCamera} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Reset</button>
+          </div>
+          <div className="flex min-w-0 items-center gap-4">
+            <span>State: {loadState}</span>
+            <span className="truncate">Focus: {currentFocusLabel}</span>
           </div>
         </div>
       }
