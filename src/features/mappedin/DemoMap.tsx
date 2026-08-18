@@ -1,9 +1,4 @@
 import {
-  getMapData,
-  show3dMap,
-  type Space,
-} from '@mappedin/mappedin-js'
-import {
   AlertTriangle,
   Compass,
   Expand,
@@ -19,22 +14,16 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-
-type TokenPayload = {
-  accessToken?: string
-  mapId?: string
-  error?: string
-}
-
-type LoadState = 'loading' | 'ready' | 'error'
-type MapData = Awaited<ReturnType<typeof getMapData>>
-type MapView = Awaited<ReturnType<typeof show3dMap>>
-
-type FloorOption = {
-  id: string
-  name: string
-  elevation: number
-}
+import { normalizeFloors } from './core/floors'
+import { initializeMappedinMap } from './core/mapLifecycle'
+import { enableSpaceInteractivity, normalizeSpaces } from './core/spaces'
+import type {
+  FloorOption,
+  LoadState,
+  MapData,
+  MappedinSpace,
+  MapView,
+} from './types/mappedinTypes'
 
 type LocationState =
   | { status: 'idle'; message: string }
@@ -150,7 +139,7 @@ function DemoMapContent() {
     message: 'Location is off until you request it.',
   })
 
-  const selectSpace = useCallback((space: Space, mapView: MapView) => {
+  const selectSpace = useCallback((space: MappedinSpace, mapView: MapView) => {
     const name = space.name?.trim() || 'Unnamed mapped location'
     mapView.Camera.focusOn(space)
     setSelectedSpace(name)
@@ -202,47 +191,23 @@ function DemoMapContent() {
     setLoadState('loading')
     setErrorMessage('')
 
-    const tokenResponse = await fetch('/api/mappedin-token')
-    const tokenPayload = (await tokenResponse.json()) as TokenPayload
-
-    if (!tokenResponse.ok || !tokenPayload.accessToken || !tokenPayload.mapId) {
-      throw new Error(
-        tokenPayload.error ?? 'The Mappedin configuration could not be loaded.',
-      )
-    }
-
-    const mapData = await getMapData({
-      accessToken: tokenPayload.accessToken,
-      mapId: tokenPayload.mapId,
+    const { mapData, mapView } = await initializeMappedinMap(mapElement, {
+      tokenErrorMessage: 'The Mappedin configuration could not be loaded.',
     })
-    const mapView = await show3dMap(mapElement, mapData)
 
     mapViewRef.current = mapView
     mapDataRef.current = mapData
-    mapView.Camera.interactions.set({
-      pan: true,
-      zoom: true,
-      bearingAndPitch: true,
-    })
 
-    const floorOptions = mapData
-      .getByType('floor')
-      .map((floor) => ({
-        id: floor.id,
-        name: floor.name || `Level ${floor.elevation}`,
-        elevation: floor.elevation,
-      }))
-      .sort((a, b) => b.elevation - a.elevation)
+    const floorOptions = normalizeFloors(mapData, { sort: 'elevation-desc' })
 
     setFloors(floorOptions)
     setCurrentFloorId(mapView.currentFloor.id)
 
-    mapData.getByType('space').forEach((space) => {
-      mapView.updateState(space, {
-        interactive: true,
-        hoverColor: '#22d3ee',
-      })
-    })
+    enableSpaceInteractivity(
+      mapView,
+      normalizeSpaces(mapData, mapView.currentFloor?.name || 'Mapped floor'),
+      '#22d3ee',
+    )
 
     await addPersistentLabels(mapView, mapData)
 

@@ -1,4 +1,3 @@
-import { getMapData, show3dMap } from '@mappedin/mappedin-js'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -28,14 +27,19 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import { normalizeFloors } from './core/floors'
+import { initializeMappedinMap } from './core/mapLifecycle'
+import { enableSpaceInteractivity, normalizeSpaces } from './core/spaces'
+import type { FloorOption, LoadState, MapData, MapView, SpaceOption } from './types/mappedinTypes'
 
-type TokenPayload = { accessToken?: string; mapId?: string; error?: string }
-type LoadState = 'loading' | 'ready' | 'error'
-type FloorOption = { id: string; name: string; elevation: number; sortOrder: number }
-type SpaceOption = { id: string; name: string; floorName: string; raw: any }
 type LocationState = { status: 'off' | 'requesting' | 'ready' | 'error'; message: string }
 type PickMode = 'inspect' | 'origin' | 'destination'
 type ExperienceVariant = 'control-tower' | 'mappedin-plus'
+type CameraTransform = { bearing?: number; pitch?: number; zoom?: number }
+type CameraFocusTarget = Parameters<MapView['Camera']['focusOn']>[0]
+type FloorChangeEvent = { floor: CameraFocusTarget & { id: string; name?: string; elevation?: number } }
+type CameraChangeEvent = CameraTransform
+type MapClickEvent = { spaces?: Array<{ id?: string }>; labels?: Array<{ text?: string }> }
 
 type RouteInstruction = {
   text: string
@@ -48,17 +52,6 @@ type MappedinFullMapExperienceProps = {
 
 function safeName(value: unknown, fallback: string) {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
-}
-
-function floorSortOrder(name: string, elevation: number) {
-  const normalized = name.toLowerCase()
-  if (normalized.includes('ground')) return 0
-  if (normalized.includes('first')) return 1
-  if (normalized.includes('second')) return 2
-  if (normalized.includes('third')) return 3
-  if (normalized.includes('fourth')) return 4
-  if (normalized.includes('fifth')) return 5
-  return Number.isFinite(elevation) ? elevation + 100 : 999
 }
 
 function instructionText(instruction: any, index: number) {
@@ -81,7 +74,11 @@ function formatDistance(distance: number | null) {
   return `${Math.round(distance)} m`
 }
 
-async function addLabels(mapView: any, spaces: SpaceOption[]) {
+function setCameraTransform(mapView: MapView, transform: CameraTransform) {
+  ;(mapView.Camera.set as (nextTransform: CameraTransform) => void)(transform)
+}
+
+async function addLabels(mapView: MapView, spaces: SpaceOption[]) {
   mapView.Labels.removeAll()
   await Promise.all(
     spaces.slice(0, 600).map((space) =>
@@ -107,8 +104,8 @@ async function addLabels(mapView: any, spaces: SpaceOption[]) {
 function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
-  const mapViewRef = useRef<any>(null)
-  const mapDataRef = useRef<any>(null)
+  const mapViewRef = useRef<MapView | null>(null)
+  const mapDataRef = useRef<MapData | null>(null)
   const spacesRef = useRef<SpaceOption[]>([])
   const orbitTimerRef = useRef<number | null>(null)
   const bearingRef = useRef(0)
@@ -173,7 +170,7 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
     setBearing(normalizedBearing)
     setPitch(normalizedPitch)
     setZoom(normalizedZoom)
-    mapView.Camera.set({ bearing: normalizedBearing, pitch: normalizedPitch, zoom: normalizedZoom })
+    setCameraTransform(mapView, { bearing: normalizedBearing, pitch: normalizedPitch, zoom: normalizedZoom })
   }, [])
 
   const applyCampusCamera = useCallback(() => {
@@ -192,7 +189,7 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
     try {
       mapView?.Navigation?.stopTracking?.()
       mapView?.Navigation?.clear?.()
-      mapView?.Navigation?.remove?.()
+      ;(mapView?.Navigation as { remove?: () => void } | undefined)?.remove?.()
       mapView?.Paths?.removeAll?.()
     } catch {
       // Mappedin exposes slightly different clear methods across versions.
@@ -260,7 +257,8 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
         },
       })
 
-      const distance = Number(directions.distance ?? directions.totalDistance ?? 0)
+      const legacyDistance = (directions as { totalDistance?: number }).totalDistance
+      const distance = Number(directions.distance ?? legacyDistance ?? 0)
       const instructions = Array.isArray(directions.instructions)
         ? directions.instructions.map((instruction: any, index: number) => ({
             text: instructionText(instruction, index),
@@ -287,56 +285,26 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
     setLoadState('loading')
     setErrorMessage('')
 
-    const tokenResponse = await fetch('/api/mappedin-token')
-    const tokenPayload = (await tokenResponse.json()) as TokenPayload
-    if (!tokenResponse.ok || !tokenPayload.accessToken || !tokenPayload.mapId) {
-      throw new Error(tokenPayload.error ?? 'Mappedin token configuration could not be loaded.')
-    }
-
-    const mapData = await getMapData({ accessToken: tokenPayload.accessToken, mapId: tokenPayload.mapId })
-    const mapView = await show3dMap(mapElement, mapData)
+    const { mapData, mapView } = await initializeMappedinMap(mapElement, {
+      tokenErrorMessage: 'Mappedin token configuration could not be loaded.',
+    })
     mapViewRef.current = mapView
     mapDataRef.current = mapData
-    mapView.Camera.interactions.set({ pan: true, zoom: true, bearingAndPitch: true })
-
-    const floorOptions: FloorOption[] = mapData
-      .getByType('floor')
-      .map((floor: any) => {
-        const name = safeName(floor.name, `Level ${floor.elevation ?? ''}`)
-        const elevation = Number(floor.elevation ?? 0)
-        return {
-          id: String(floor.id),
-          name,
-          elevation,
-          sortOrder: floorSortOrder(name, elevation),
-        }
-      })
-      .sort((a: FloorOption, b: FloorOption) => a.sortOrder - b.sortOrder)
 
     const currentFloorName = safeName(mapView.currentFloor?.name, 'Current floor')
-    const spaceOptions: SpaceOption[] = mapData
-      .getByType('space')
-      .filter((space: any) => safeName(space.name, '').length > 0)
-      .map((space: any) => ({
-        id: String(space.id),
-        name: safeName(space.name, 'Unnamed mapped space'),
-        floorName: safeName(space.floor?.name, currentFloorName),
-        raw: space,
-      }))
-      .sort((a: SpaceOption, b: SpaceOption) => a.name.localeCompare(b.name))
+    const floorOptions = normalizeFloors(mapData, { sort: 'semantic-asc' })
+    const spaceOptions = normalizeSpaces(mapData, currentFloorName)
 
     setFloors(floorOptions)
     setSpaces(spaceOptions)
     spacesRef.current = spaceOptions
     setCurrentFloorId(String(mapView.currentFloor.id))
 
-    spaceOptions.forEach((space) => {
-      mapView.updateState(space.raw, { interactive: true, hoverColor: '#06b6d4' })
-    })
+    enableSpaceInteractivity(mapView, spaceOptions, '#06b6d4')
 
     await addLabels(mapView, spaceOptions)
 
-    mapView.on('floor-change', (event: any) => {
+    mapView.on('floor-change', (event: FloorChangeEvent) => {
       setCurrentFloorId(String(event.floor.id))
       if (!routeActive) {
         mapView.Camera.focusOn(event.floor)
@@ -344,7 +312,7 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
       }
     })
 
-    mapView.on('camera-change', (transform: any) => {
+    mapView.on('camera-change', (transform: CameraChangeEvent) => {
       if (typeof transform.bearing === 'number') {
         const nextBearing = ((transform.bearing % 360) + 360) % 360
         bearingRef.current = nextBearing
@@ -362,7 +330,7 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
       }
     })
 
-    mapView.on('click', (event: any) => {
+    mapView.on('click', (event: MapClickEvent) => {
       const clickedSpace = event.spaces?.[0]
       const clickedLabel = event.labels?.[0]
       if (clickedSpace?.id) {

@@ -1,9 +1,4 @@
 import {
-  getMapData,
-  show3dMap,
-  type Space,
-} from '@mappedin/mappedin-js'
-import {
   AlertTriangle,
   ArrowLeft,
   Building2,
@@ -27,28 +22,22 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-
-type TokenPayload = {
-  accessToken?: string
-  mapId?: string
-  error?: string
-}
-
-type LoadState = 'loading' | 'ready' | 'error'
-type MapData = Awaited<ReturnType<typeof getMapData>>
-type MapView = Awaited<ReturnType<typeof show3dMap>>
-
-type FloorOption = {
-  id: string
-  name: string
-  elevation: number
-}
+import { normalizeFloors } from './core/floors'
+import { initializeMappedinMap } from './core/mapLifecycle'
+import { enableSpaceInteractivity, normalizeSpaces } from './core/spaces'
+import type {
+  FloorOption,
+  LoadState,
+  MapData,
+  MappedinSpace,
+  MapView,
+} from './types/mappedinTypes'
 
 type SpaceOption = {
   id: string
   name: string
   floorName: string
-  space: Space
+  space: MappedinSpace
 }
 
 type SelectedLocation = {
@@ -154,60 +143,37 @@ function MappedinImmersiveDemoPage() {
     setLoadState('loading')
     setErrorMessage('')
 
-    const tokenResponse = await fetch('/api/mappedin-token')
-    const tokenPayload = (await tokenResponse.json()) as TokenPayload
-
-    if (!tokenResponse.ok || !tokenPayload.accessToken || !tokenPayload.mapId) {
-      throw new Error(
-        tokenPayload.error ?? 'The Mappedin configuration could not be loaded.',
-      )
-    }
-
-    const mapData = await getMapData({
-      accessToken: tokenPayload.accessToken,
-      mapId: tokenPayload.mapId,
+    const { mapData, mapView } = await initializeMappedinMap(mapElement, {
+      tokenErrorMessage: 'The Mappedin configuration could not be loaded.',
     })
-    const mapView = await show3dMap(mapElement, mapData)
 
     mapViewRef.current = mapView
     mapDataRef.current = mapData
 
-    mapView.Camera.interactions.set({
-      pan: true,
-      zoom: true,
-      bearingAndPitch: true,
-    })
+    const floorOptions = normalizeFloors(mapData, { sort: 'elevation-desc' })
 
-    const floorOptions = mapData
-      .getByType('floor')
-      .map((floor) => ({
-        id: floor.id,
-        name: floor.name || `Level ${floor.elevation}`,
-        elevation: floor.elevation,
-      }))
-      .sort((a, b) => b.elevation - a.elevation)
-
-    const spaceOptions = mapData
-      .getByType('space')
-      .filter((space) => Boolean(space.name?.trim()))
-      .map((space) => ({
-        id: space.id,
-        name: (space.name ?? '').trim(),
-        floorName: mapView.currentFloor?.name || 'Mapped floor',
-        space,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+    const spaceOptions = normalizeSpaces(
+      mapData,
+      mapView.currentFloor?.name || 'Mapped floor',
+      { useActualFloorName: false },
+    ).map((space) => ({
+      id: space.id,
+      name: space.name,
+      floorName: space.floorName,
+      space: space.raw,
+    }))
 
     setFloors(floorOptions)
     setSpaces(spaceOptions)
     setCurrentFloorId(mapView.currentFloor.id)
 
-    mapData.getByType('space').forEach((space) => {
-      mapView.updateState(space, {
-        interactive: true,
-        hoverColor: '#22d3ee',
-      })
-    })
+    enableSpaceInteractivity(
+      mapView,
+      normalizeSpaces(mapData, mapView.currentFloor?.name || 'Mapped floor', {
+        useActualFloorName: false,
+      }),
+      '#22d3ee',
+    )
 
     await addPersistentLabels(mapView, mapData)
 

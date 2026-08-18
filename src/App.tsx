@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router'
 import SiteLayout from './components/layout/SiteLayout'
 import DashboardPage from './features/activation/DashboardPage'
+import AetherMappedinPage from './features/mappedin/AetherMappedinPage'
 import DemoMap from './features/mappedin/DemoMap'
 import MappedinControlTowerDemoPage from './features/mappedin/MappedinControlTowerDemoPage'
 import MappedinImmersiveDemoPage from './features/mappedin/MappedinImmersiveDemoPage'
@@ -37,6 +38,7 @@ function App() {
       <Route path="/demo1" element={<MappedinImmersiveDemoPage />} />
       <Route path="/demo2" element={<MappedinControlTowerDemoPage />} />
       <Route path="/demo3" element={<MappedinMissionControlDemoPage />} />
+      <Route path="/mappedin" element={<AetherMappedinPage />} />
     </Routes>
   )
 }
