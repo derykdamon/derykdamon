@@ -37,12 +37,14 @@ type CameraActionOptions = CameraTransform & {
   applyZoom?: boolean
   animate?: boolean
   duration?: number
+  easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
 }
 
 type CameraSetOptions = {
   applyZoom?: boolean
   animate?: boolean
   duration?: number
+  easing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
 }
 
 type CameraFocusTarget = Parameters<MapView['Camera']['focusOn']>[0]
@@ -84,13 +86,19 @@ function animateCameraTransform(
   mapView: MapView,
   transform: CameraTransform,
   duration?: number,
+  easing?: CameraSetOptions['easing'],
 ) {
   const animateTo = mapView.Camera.animateTo as (
     nextTransform: CameraTransform,
-    options?: { duration?: number },
+    options?: { duration?: number; easing?: CameraSetOptions['easing'] },
   ) => Promise<void>
 
-  void animateTo(transform, duration === undefined ? undefined : { duration })
+  void animateTo(
+    transform,
+    duration === undefined && easing === undefined
+      ? undefined
+      : { duration, easing },
+  )
 }
 
 function hasCameraTransform(options: CameraActionOptions) {
@@ -184,6 +192,7 @@ export class CameraController {
         animate: options.animate,
         applyZoom: options.applyZoom,
         duration: options.duration,
+        easing: options.easing,
       },
     )
   }
@@ -203,6 +212,7 @@ export class CameraController {
         animate: options.animate,
         applyZoom: options.applyZoom,
         duration: options.duration,
+        easing: options.easing,
       },
     )
   }
@@ -221,6 +231,7 @@ export class CameraController {
         animate: options.animate,
         applyZoom: options.applyZoom,
         duration: options.duration,
+        easing: options.easing,
       },
     )
   }
@@ -311,7 +322,12 @@ export class CameraController {
     }
 
     if (options.animate) {
-      animateCameraTransform(this.mapView, nextTransform, options.duration)
+      animateCameraTransform(
+        this.mapView,
+        nextTransform,
+        options.duration,
+        options.easing,
+      )
     } else {
       setCameraTransform(this.mapView, nextTransform)
     }

@@ -97,6 +97,7 @@ function AetherMappedinPage() {
         applyZoom: true,
         animate: true,
         duration: 1400,
+        easing: 'ease-in-out',
       })
     }, 180)
 
@@ -186,7 +187,7 @@ function AetherMappedinPage() {
               ].map((item) => (
                 <div
                   key={item.label}
-                  className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-sm text-slate-300"
+                  className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-sm text-slate-300 transition duration-300 ease-out hover:border-cyan-200/20 hover:bg-cyan-200/[0.06] hover:text-white"
                 >
                   <item.icon size={16} className="text-cyan-200/80" />
                   <span>{item.label}</span>
@@ -219,11 +220,11 @@ function AetherMappedinPage() {
             </p>
           </div>
           <div className="grid gap-2 text-xs text-slate-400">
-            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2">
+            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.05]">
               <span>World</span>
               <span className="text-slate-300">Ready</span>
             </div>
-            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2">
+            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.05]">
               <span>Presence</span>
               <span className="text-slate-300">{loadState}</span>
             </div>
