@@ -1,6 +1,7 @@
 import type { CameraState } from './cameraController'
+import type { WorldEntityRef } from './worldSubsystem'
 
-export type PresenceEntity = {
+export type PresenceEntity = Partial<WorldEntityRef> & {
   id: string
   name?: string
 }
@@ -24,8 +25,10 @@ export type PresenceSelection =
   | {
       type: 'building' | 'floor' | 'space' | 'label' | 'coordinate' | 'custom'
       id?: string
+      worldId?: string
       name?: string
       floorId?: string
+      floorWorldId?: string
       floorName?: string
       latitude?: number
       longitude?: number
@@ -56,6 +59,7 @@ export type PresenceFocus =
         | 'route'
         | 'user-location'
       id?: string
+      worldId?: string
       label?: string
     }
 
