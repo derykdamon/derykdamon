@@ -66,10 +66,21 @@ export type PresenceFocus =
 export type PresenceRoute =
   | { status: 'idle' }
   | {
-      status: 'previewing' | 'navigating' | 'complete' | 'blocked'
+      status:
+        | 'setting-origin'
+        | 'setting-destination'
+        | 'calculating'
+        | 'previewing'
+        | 'navigating'
+        | 'complete'
+        | 'blocked'
       origin?: PresenceSelection
       destination?: PresenceSelection
       activeInstructionIndex?: number
+      distanceMeters?: number
+      floorIds?: string[]
+      instructionCount?: number
+      message?: string
       metadata?: Record<string, unknown>
     }
 

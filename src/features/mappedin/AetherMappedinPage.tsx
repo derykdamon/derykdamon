@@ -47,6 +47,7 @@ function AetherMappedinPage() {
   const selectionMoveTimerRef = useRef<number | null>(null)
   const selectedSpaceRef = useRef<WorldSpace | null>(null)
   const handledSelectionRef = useRef<string | null>(null)
+  const routeRequestRef = useRef(0)
   const [loadState, setLoadState] = useState<AetherShellState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
@@ -133,6 +134,22 @@ function AetherMappedinPage() {
     },
     [syncPresenceFloor],
   )
+
+  const createSpaceSelection = useCallback((space: WorldSpace) => ({
+    type: 'space' as const,
+    id: space.id,
+    worldId: space.worldId,
+    name: space.name,
+    floorId: space.floorId,
+    floorWorldId: space.floorId ? `floor:${space.floorId}` : undefined,
+    floorName: space.floorName,
+  }), [])
+
+  const clearRoute = useCallback(() => {
+    routeRequestRef.current += 1
+    mapViewRef.current?.Navigation.clear()
+    presenceActions.setCurrentRoute({ status: 'idle' })
+  }, [])
 
   const loadMap = useCallback(async () => {
     const mapElement = mapElementRef.current
@@ -241,8 +258,12 @@ function AetherMappedinPage() {
       setSuggestions([])
     })
 
+    mapView.on('navigation-connection-click', (event) => {
+      activateFloor(String(event.toFloor.id))
+    })
+
     return mapView
-  }, [setAetherLoadState])
+  }, [activateFloor, setAetherLoadState])
 
   useEffect(() => {
     return presenceSelectors.subscribe(setPresenceState)
@@ -372,6 +393,152 @@ function AetherMappedinPage() {
     setSuggestions([])
   }
 
+  const setRouteEndpoint = (endpoint: 'origin' | 'destination') => {
+    if (!selectedSpace) return
+
+    const nextSelection = createSpaceSelection(selectedSpace)
+    const currentRoute = presenceSelectors.getCurrentRoute()
+    const currentOrigin =
+      currentRoute.status === 'idle' ? undefined : currentRoute.origin
+    const currentDestination =
+      currentRoute.status === 'idle' ? undefined : currentRoute.destination
+    const nextRoute = {
+      status:
+        endpoint === 'origin'
+          ? ('setting-destination' as const)
+          : ('setting-origin' as const),
+      origin: endpoint === 'origin' ? nextSelection : currentOrigin,
+      destination:
+        endpoint === 'destination' ? nextSelection : currentDestination,
+    }
+
+    mapViewRef.current?.Navigation.clear()
+    presenceActions.setCurrentRoute(nextRoute)
+    presenceActions.setCurrentFocus({
+      type: 'route',
+      id: nextSelection.id,
+      worldId: nextSelection.worldId,
+      label: nextSelection.name,
+    })
+  }
+
+  const calculateRoute = async () => {
+    const mapView = mapViewRef.current
+    const currentRoute = presenceSelectors.getCurrentRoute()
+
+    if (
+      !mapView ||
+      currentRoute.status === 'idle' ||
+      currentRoute.origin?.type !== 'space' ||
+      currentRoute.destination?.type !== 'space' ||
+      !currentRoute.origin.id ||
+      !currentRoute.destination.id
+    ) {
+      return
+    }
+
+    const origin = worldSelectors.getSpaceById(currentRoute.origin.id)
+    const destination = worldSelectors.getSpaceById(currentRoute.destination.id)
+    if (!origin || !destination) return
+
+    const requestId = routeRequestRef.current + 1
+    routeRequestRef.current = requestId
+    mapView.Navigation.clear()
+    presenceActions.setCurrentRoute({
+      status: 'calculating',
+      origin: currentRoute.origin,
+      destination: currentRoute.destination,
+      message: 'Calculating route',
+    })
+    presenceActions.setCurrentFocus({
+      type: 'route',
+      id: `${origin.id}:${destination.id}`,
+      label: `${origin.name} to ${destination.name}`,
+    })
+
+    try {
+      const directions = await mapView.getDirections(origin.raw, destination.raw, {
+        smoothing: {
+          enabled: true,
+          __EXPERIMENTAL_METHOD: 'greedy-los',
+          radius: 0.75,
+        },
+      })
+
+      if (routeRequestRef.current !== requestId) return
+
+      if (!directions) {
+        presenceActions.setCurrentRoute({
+          status: 'blocked',
+          origin: currentRoute.origin,
+          destination: currentRoute.destination,
+          message: 'No route found',
+        })
+        return
+      }
+
+      await mapView.Navigation.draw(directions, {
+        animatePathDrawing: true,
+        setMapOnConnectionClick: true,
+        setMapToDeparture: true,
+        pathOptions: {
+          color: '#22d3ee',
+          accentColor: '#ffffff',
+          width: 0.65,
+          showPulse: true,
+          animateDrawing: true,
+          displayArrowsOnPath: true,
+          drawDuration: 1400,
+          verticalOffset: 0.18,
+          __EXPERIMENTAL__CONNECTION_COLOR: '#a78bfa',
+        },
+        markerOptions: {
+          departureColor: '#22d3ee',
+          destinationColor: '#a78bfa',
+          animated: true,
+        },
+      })
+
+      if (routeRequestRef.current !== requestId) return
+
+      const routeFloors = mapView.Navigation.floors.map((floor) =>
+        String(floor.id),
+      )
+      presenceActions.setCurrentRoute({
+        status: 'previewing',
+        origin: currentRoute.origin,
+        destination: currentRoute.destination,
+        distanceMeters: Math.round(directions.distance),
+        floorIds: routeFloors,
+        instructionCount: directions.instructions.length,
+        activeInstructionIndex: 0,
+      })
+
+      const firstFloorId = routeFloors[0]
+      if (firstFloorId) activateFloor(firstFloorId)
+      cameraControllerRef.current?.flyToRoom(origin.raw, {
+        bearing: cameraControllerRef.current.getState().bearing,
+        pitch: 52,
+        zoom: 17,
+        preset: 'room',
+        applyZoom: true,
+        animate: true,
+        duration: 900,
+        easing: 'ease-in-out',
+      })
+    } catch (error) {
+      if (routeRequestRef.current !== requestId) return
+
+      presenceActions.setCurrentRoute({
+        status: 'blocked',
+        origin: currentRoute.origin,
+        destination: currentRoute.destination,
+        message:
+          error instanceof Error ? error.message : 'Route calculation failed',
+      })
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
     let activeMapView: MapView | undefined
@@ -403,6 +570,7 @@ function AetherMappedinPage() {
       cameraControllerRef.current?.destroy()
       cameraControllerRef.current = null
       clearSelectedSpaceHighlight()
+      mapViewRef.current?.Navigation.clear()
       worldActions.reset()
       presenceActions.reset()
       mapViewRef.current = null
@@ -477,6 +645,42 @@ function AetherMappedinPage() {
     ['Current Search', currentSearch],
     ['Loading State', presenceState.currentLoadState],
   ]
+  const currentRoute = presenceState.currentRoute
+  const routeOriginName =
+    currentRoute.status === 'idle' || currentRoute.origin?.type === 'none'
+      ? ''
+      : currentRoute.origin?.name ?? ''
+  const routeDestinationName =
+    currentRoute.status === 'idle' ||
+    currentRoute.destination?.type === 'none'
+      ? ''
+      : currentRoute.destination?.name ?? ''
+  const routeFloorNames =
+    currentRoute.status === 'idle'
+      ? []
+      : currentRoute.floorIds
+          ?.map((floorId) => worldSelectors.getFloorById(floorId)?.name)
+          .filter((floorName): floorName is string => Boolean(floorName)) ?? []
+  const canSetRouteEndpoint = Boolean(selectedSpace)
+  const canCalculateRoute =
+    currentRoute.status !== 'idle' &&
+    currentRoute.status !== 'calculating' &&
+    currentRoute.origin?.type === 'space' &&
+    currentRoute.destination?.type === 'space'
+  const routeSummary =
+    currentRoute.status === 'idle'
+      ? ''
+      : currentRoute.message ??
+        [
+          currentRoute.distanceMeters === undefined
+            ? undefined
+            : `${currentRoute.distanceMeters} m`,
+          currentRoute.instructionCount === undefined
+            ? undefined
+            : `${currentRoute.instructionCount} steps`,
+        ]
+          .filter(Boolean)
+          .join(' · ')
   const selectionPanelRows = selectedSpace
     ? [
         ['Floor', selectedSpace.floorName],
@@ -598,12 +802,64 @@ function AetherMappedinPage() {
         </div>
       }
       navigation={
-        <div className="p-4">
+        <div className="space-y-3 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <Navigation size={16} className="text-cyan-300" />
             Route
           </div>
-          <p className="mt-2 text-xs text-slate-500">Standby</p>
+          <div className="grid gap-2 text-xs text-slate-400">
+            {[
+              ['Origin', routeOriginName],
+              ['Destination', routeDestinationName],
+              ['Status', currentRoute.status],
+              ['Path', routeSummary],
+              ['Floors', routeFloorNames.join(' · ')],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="flex justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2"
+              >
+                <span>{label}</span>
+                <span className="truncate text-right text-slate-300">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={!canSetRouteEndpoint}
+              onClick={() => setRouteEndpoint('origin')}
+              className="rounded-xl border border-cyan-200/20 bg-cyan-200/[0.06] px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-200/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Set Origin
+            </button>
+            <button
+              type="button"
+              disabled={!canSetRouteEndpoint}
+              onClick={() => setRouteEndpoint('destination')}
+              className="rounded-xl border border-violet-200/20 bg-violet-200/[0.06] px-3 py-2 text-xs font-semibold text-violet-100 transition hover:bg-violet-200/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Set Destination
+            </button>
+            <button
+              type="button"
+              disabled={!canCalculateRoute}
+              onClick={() => void calculateRoute()}
+              className="rounded-xl border border-emerald-200/20 bg-emerald-200/[0.07] px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-200/[0.14] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Calculate
+            </button>
+            <button
+              type="button"
+              disabled={currentRoute.status === 'idle'}
+              onClick={clearRoute}
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Clear
+            </button>
+          </div>
         </div>
       }
       rightMissionControl={
