@@ -20,7 +20,7 @@ import {
   Search,
   Target,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AetherShell from './components/AetherShell'
 import {
   createCameraController,
@@ -39,6 +39,7 @@ import {
   presenceSelectors,
   type PresenceState,
 } from './core/presenceSubsystem'
+import { enableSpaceInteractivity } from './core/spaces'
 import {
   searchActions,
   searchSelectors,
@@ -103,7 +104,7 @@ function AetherMappedinPage() {
 
     mapView.updateState(selectedSpace.raw, {
       color: 'initial',
-      hoverColor: '#22d3ee',
+      hoverColor: '#7dd3fc',
       interactive: true,
     })
     selectedSpaceRef.current = null
@@ -116,8 +117,8 @@ function AetherMappedinPage() {
 
       clearSelectedSpaceHighlight()
       mapView.updateState(space.raw, {
-        color: '#22d3ee',
-        hoverColor: '#67e8f9',
+        color: '#0891b2',
+        hoverColor: '#a5f3fc',
         interactive: true,
       })
       selectedSpaceRef.current = space
@@ -593,12 +594,7 @@ function AetherMappedinPage() {
       elevation: Number(mapView.currentFloor.elevation ?? 0),
     })
 
-    worldSelectors.getSpaces().forEach((space) => {
-      mapView.updateState(space.raw, {
-        interactive: true,
-        hoverColor: '#22d3ee',
-      })
-    })
+    enableSpaceInteractivity(mapView, worldSelectors.getSpaces(), '#7dd3fc')
     setLabelsVisible(false)
 
     const cameraController = createCameraController(mapView, {
@@ -699,6 +695,7 @@ function AetherMappedinPage() {
     if (selection.type === 'none' || !selection.id) {
       handledSelectionRef.current = null
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({ type: 'none' })
       return
     }
 
@@ -717,6 +714,12 @@ function AetherMappedinPage() {
 
     if (selection.type === 'building') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: 'building',
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+      })
       cameraController.flyToFloor(mapView.currentFloor, {
         bearing: cameraController.getState().bearing,
         pitch: 48,
@@ -732,6 +735,12 @@ function AetherMappedinPage() {
 
     if (selection.type === 'floor') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: 'floor',
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+      })
       activateFloor(selection.id)
 
       selectionMoveTimerRef.current = window.setTimeout(() => {
@@ -743,6 +752,13 @@ function AetherMappedinPage() {
 
     if (selection.type === 'label') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: 'label',
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+        floorId: selection.floorId,
+      })
       if (selection.floorId) {
         activateFloor(selection.floorId)
 
@@ -756,11 +772,26 @@ function AetherMappedinPage() {
 
     if (selection.type !== 'space') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: selection.type,
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+        floorId: selection.floorId,
+      })
       return
     }
 
     const selectedSpace = worldSelectors.getSpaceById(selection.id)
     if (!selectedSpace) return
+
+    worldActions.setSelection({
+      type: 'space',
+      id: selectedSpace.id,
+      worldId: selectedSpace.worldId,
+      name: selectedSpace.name,
+      floorId: selectedSpace.floorId,
+    })
 
     const activeRoute = presenceSelectors.getCurrentRoute()
     if (activeRoute.status === 'setting-origin') {
@@ -1183,21 +1214,21 @@ function AetherMappedinPage() {
         ]
           .filter(Boolean)
           .join(' · ')
-  const visibleSpaces = useMemo(() => {
-    if (searchState.query.trim()) {
-      return searchState.results
+  const visibleSpaces = searchState.query.trim()
+    ? searchState.results
         .filter((result) => result.type === 'space')
         .map((result) => worldSelectors.getSpaceById(result.id))
         .filter((space): space is WorldSpace => Boolean(space))
         .slice(0, 40)
-    }
-
-    if (currentFloor?.id) {
-      return worldSelectors.getSpacesByFloor(currentFloor.id).slice(0, 40)
-    }
-
-    return worldState.spaces.slice(0, 40)
-  }, [currentFloor?.id, searchState.query, searchState.results, worldState.spaces])
+    : currentFloor?.id
+      ? worldSelectors.getSpacesByFloor(currentFloor.id).slice(0, 40)
+      : worldState.spaces.slice(0, 40)
+  const nearbySpaces = selectedSpace?.floorId
+    ? worldSelectors
+        .getSpacesByFloor(selectedSpace.floorId)
+        .filter((space) => space.id !== selectedSpace.id)
+        .slice(0, 5)
+    : []
   const cameraBearingValue = currentCamera?.bearing ?? 0
   const cameraPitchValue = currentCamera?.pitch ?? 48
   const cameraZoomValue = currentCamera?.zoom ?? 14.2
@@ -1208,7 +1239,8 @@ function AetherMappedinPage() {
     ? [
         ['Floor', selectedSpace.floorName],
         ['Mappedin ID', selectedSpace.id],
-        ['Search', presenceState.currentSearch.selectedResultName ?? ''],
+        ['Search', presenceState.currentSearch.selectedResultName ?? selectedSpace.name],
+        ['Nearby Context', `${nearbySpaces.length} spaces`],
       ]
     : []
 
@@ -1660,6 +1692,28 @@ function AetherMappedinPage() {
                   </span>
                 </div>
               ))}
+            </div>
+          )}
+          {nearbySpaces.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200/60">
+                Nearby
+              </p>
+              <div className="grid gap-2">
+                {nearbySpaces.map((space) => (
+                  <button
+                    key={space.id}
+                    type="button"
+                    onClick={() => selectWorldSpace(space)}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 text-left text-xs text-slate-300 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.07] hover:text-cyan-50"
+                  >
+                    <span className="truncate">{space.name}</span>
+                    <span className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      {space.floorName}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
