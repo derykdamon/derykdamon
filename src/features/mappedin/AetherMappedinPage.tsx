@@ -1202,16 +1202,16 @@ function AetherMappedinPage() {
       mapReady={loadState === 'ready'}
       mapCanvas={<div ref={mapElementRef} className="h-full w-full" />}
       topBar={
-        <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+        <div className="flex items-center justify-between gap-5 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-cyan-200/75">
               Aether
             </p>
-            <p className="mt-1 text-sm font-semibold text-white">
+            <p className="mt-1 text-sm font-semibold text-white/88">
               Spatial Intelligence
             </p>
           </div>
-          <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-200">
+          <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-emerald-300/12 bg-emerald-300/[0.06] px-3 py-1.5 text-xs font-medium text-emerald-200/85">
             <span className="h-2 w-2 rounded-full bg-emerald-300" />
             {loadState === 'ready' ? 'Mappedin online' : 'Preparing map'}
           </div>
@@ -1219,7 +1219,7 @@ function AetherMappedinPage() {
       }
       topOmnibox={
         <div className="relative">
-          <label className="flex items-center gap-3 px-4 py-3">
+          <label className="flex items-center gap-3 px-5 py-4">
             <Search size={17} className="shrink-0 text-cyan-200/80" />
             <div className="min-w-0 flex-1">
               <input
@@ -1260,7 +1260,7 @@ function AetherMappedinPage() {
                   : selectedSpace?.floorName ?? `${worldState.spaces.length} searchable spaces`}
               </p>
             </div>
-            <div className="hidden rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-slate-400 sm:block">
+            <div className="hidden rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1 text-[11px] font-medium text-slate-400 sm:block">
               {searchState.query.trim()
                 ? `${searchState.results.length} results`
                 : `${worldState.spaces.length} spaces`}
@@ -1268,14 +1268,14 @@ function AetherMappedinPage() {
           </label>
 
           {suggestions.length > 0 && (
-            <div className="absolute left-3 right-3 top-[calc(100%+0.5rem)] overflow-hidden rounded-2xl border border-cyan-100/10 bg-[#061017]/95 shadow-2xl backdrop-blur-2xl">
+            <div className="absolute left-4 right-4 top-[calc(100%+0.65rem)] overflow-hidden rounded-2xl border border-cyan-100/[0.06] bg-[#061017]/86 backdrop-blur-[36px]">
               {suggestions.map((suggestion, index) => (
                 <button
                   key={`${suggestion.type}:${suggestion.id}`}
                   type="button"
                   onClick={() => selectSearchResult(suggestion.result)}
                   onMouseEnter={() => setActiveSuggestionIndex(index)}
-                  className={`flex w-full items-center justify-between gap-4 border-b border-white/8 px-4 py-3 text-left transition last:border-b-0 ${
+                  className={`flex w-full items-center justify-between gap-4 border-b border-white/[0.055] px-5 py-3.5 text-left transition last:border-b-0 ${
                     activeSuggestionIndex === index
                       ? 'bg-cyan-200/[0.12] text-white'
                       : 'hover:bg-cyan-200/[0.07]'
@@ -1289,7 +1289,7 @@ function AetherMappedinPage() {
                       {suggestion.label}
                     </span>
                   </span>
-                  <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-cyan-200/70">
+                  <span className="rounded-full border border-white/[0.06] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-cyan-200/70">
                     {suggestion.type}
                   </span>
                 </button>
@@ -1298,7 +1298,7 @@ function AetherMappedinPage() {
           )}
 
           {searchState.query.trim() && suggestions.length === 0 && (
-            <div className="absolute left-3 right-3 top-[calc(100%+0.5rem)] rounded-2xl border border-cyan-100/10 bg-[#061017]/95 px-4 py-3 text-sm text-slate-400 shadow-2xl backdrop-blur-2xl">
+            <div className="absolute left-4 right-4 top-[calc(100%+0.65rem)] rounded-2xl border border-cyan-100/[0.06] bg-[#061017]/86 px-5 py-3.5 text-sm text-slate-400 backdrop-blur-[36px]">
               0 results in World
             </div>
           )}
@@ -1650,26 +1650,26 @@ function AetherMappedinPage() {
         </div>
       }
       bottomStatusBar={
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs text-slate-400">
-          <div className="flex min-w-0 items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 text-xs text-slate-400">
+          <div className="flex min-w-0 items-center gap-3 text-slate-400/85">
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
             <span className="shrink-0">Camera</span>
             <span className="truncate">
               {Math.round(cameraBearingValue)}° · {Math.round(cameraPitchValue)}° · {cameraZoomValue.toFixed(1)}
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <button type="button" disabled={loadState !== 'ready'} onClick={focusCurrentFloor} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Floor</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={focusTopCamera} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Top</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={focusPerspectiveCamera} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">3D</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue - 25 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Rotate -</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue + 25 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Rotate +</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue + 0.7 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Zoom +</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue - 0.7 })} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Zoom -</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={toggleOrbit} className={`rounded-lg border px-2.5 py-1.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${currentCamera?.orbiting ? 'border-emerald-200/30 bg-emerald-200/[0.12] text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/10'}`}>Orbit</button>
-            <button type="button" disabled={loadState !== 'ready'} onClick={resetCamera} className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Reset</button>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusCurrentFloor} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Floor</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusTopCamera} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Top</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusPerspectiveCamera} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">3D</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue - 25 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Rotate -</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue + 25 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Rotate +</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue + 0.7 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Zoom +</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue - 0.7 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Zoom -</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={toggleOrbit} className={`rounded-lg border px-2.5 py-1.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${currentCamera?.orbiting ? 'border-emerald-200/20 bg-emerald-200/[0.08] text-emerald-100/90' : 'border-white/[0.06] bg-white/[0.025] text-slate-200/90 hover:bg-white/[0.07]'}`}>Orbit</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={resetCamera} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Reset</button>
           </div>
-          <div className="flex min-w-0 items-center gap-4">
+          <div className="flex min-w-0 items-center gap-4 text-slate-500">
             <span>State: {loadState}</span>
             <span className="truncate">Focus: {currentFocusLabel}</span>
           </div>
