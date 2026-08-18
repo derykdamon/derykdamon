@@ -1,6 +1,8 @@
 import {
   AlertTriangle,
+  Activity,
   Compass,
+  Database,
   LoaderCircle,
   LocateFixed,
   MapPin,
@@ -67,72 +69,102 @@ function AetherMappedinPage() {
     <AetherShell
       mapCanvas={<div ref={mapElementRef} className="h-full w-full" />}
       topBar={
-        <div className="flex items-center justify-between gap-4 px-4 py-3">
+        <div className="flex items-center justify-between gap-4 px-4 py-3.5">
           <div>
-            <p className="text-sm font-semibold text-white">Aether</p>
-            <p className="text-xs text-slate-400">
-              Production spatial intelligence shell
+            <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-cyan-200/75">
+              Aether
+            </p>
+            <p className="mt-1 text-sm font-semibold text-white">
+              Spatial Intelligence
             </p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-200">
+          <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-200">
             <span className="h-2 w-2 rounded-full bg-emerald-300" />
             {loadState === 'ready' ? 'Mappedin online' : 'Preparing map'}
           </div>
         </div>
       }
-      leftRail={
-        <div className="p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Compass size={16} className="text-cyan-300" />
-            Aether Controls
+      topOmnibox={
+        <div className="flex items-center gap-3 px-4 py-3">
+          <Search size={17} className="shrink-0 text-cyan-200/80" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-slate-200">
+              Search rooms, floors, assets, equipment
+            </p>
+            <p className="truncate text-xs text-slate-500">
+              Awaiting input
+            </p>
           </div>
-          <p className="mt-2 text-xs leading-5 text-slate-400">
-            Shared control regions are mounted here as production subsystems
-            migrate out of the demos.
-          </p>
+          <div className="hidden rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-slate-400 sm:block">
+            Idle
+          </div>
         </div>
       }
-      search={
-        <div className="p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Search size={16} className="text-cyan-300" />
-            Search
+      leftRail={
+        <div className="space-y-4 p-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+              Systems
+            </p>
+            <div className="mt-3 grid gap-2">
+              {[
+                { icon: Compass, label: 'Camera' },
+                { icon: Database, label: 'World' },
+                { icon: Activity, label: 'Presence' },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-sm text-slate-300"
+                >
+                  <item.icon size={16} className="text-cyan-200/80" />
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-500">
-            Search region
-          </div>
+          <p className="text-xs leading-5 text-slate-500">
+            Aether Core
+          </p>
         </div>
       }
       navigation={
         <div className="p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <Navigation size={16} className="text-cyan-300" />
-            Navigation
+            Route
           </div>
-          <p className="mt-2 text-xs leading-5 text-slate-400">
-            Navigation region
-          </p>
+          <p className="mt-2 text-xs text-slate-500">Standby</p>
         </div>
       }
       rightMissionControl={
-        <div className="p-4">
-          <div className="text-sm font-semibold text-white">
-            Mission Control
+        <div className="space-y-4 p-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-200/70">
+              Mission Control
+            </p>
+            <p className="mt-2 text-lg font-semibold text-white">
+              Building Context
+            </p>
           </div>
-          <p className="mt-2 text-xs leading-5 text-slate-400">
-            Right-side mission region
-          </p>
+          <div className="grid gap-2 text-xs text-slate-400">
+            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2">
+              <span>World</span>
+              <span className="text-slate-300">Ready</span>
+            </div>
+            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2">
+              <span>Presence</span>
+              <span className="text-slate-300">{loadState}</span>
+            </div>
+          </div>
         </div>
       }
       selection={
         <div className="p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <MapPin size={16} className="text-cyan-300" />
-            Selection
+            Focus
           </div>
-          <p className="mt-2 text-xs leading-5 text-slate-400">
-            Selection region
-          </p>
+          <p className="mt-2 truncate text-xs text-slate-500">No selection</p>
         </div>
       }
       blueDot={
@@ -143,9 +175,15 @@ function AetherMappedinPage() {
         </div>
       }
       bottomStatusBar={
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs text-slate-300">
-          <span>Aether shell active</span>
-          <span>Load state: {loadState}</span>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs text-slate-400">
+          <div className="flex items-center gap-3">
+            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
+            <span>Aether Core</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span>Mappedin</span>
+            <span>State: {loadState}</span>
+          </div>
         </div>
       }
       glassPanels={loadState === 'ready' ? undefined : (
