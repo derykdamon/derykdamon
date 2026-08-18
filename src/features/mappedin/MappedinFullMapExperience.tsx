@@ -27,6 +27,11 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import {
+  createCameraController,
+  type CameraController,
+  type CameraState,
+} from './core/cameraController'
 import { normalizeFloors } from './core/floors'
 import { initializeMappedinMap } from './core/mapLifecycle'
 import { enableSpaceInteractivity, normalizeSpaces } from './core/spaces'
@@ -74,10 +79,6 @@ function formatDistance(distance: number | null) {
   return `${Math.round(distance)} m`
 }
 
-function setCameraTransform(mapView: MapView, transform: CameraTransform) {
-  ;(mapView.Camera.set as (nextTransform: CameraTransform) => void)(transform)
-}
-
 async function addLabels(mapView: MapView, spaces: SpaceOption[]) {
   mapView.Labels.removeAll()
   await Promise.all(
@@ -107,10 +108,8 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
   const mapViewRef = useRef<MapView | null>(null)
   const mapDataRef = useRef<MapData | null>(null)
   const spacesRef = useRef<SpaceOption[]>([])
-  const orbitTimerRef = useRef<number | null>(null)
-  const bearingRef = useRef(0)
-  const pitchRef = useRef(48)
-  const zoomRef = useRef(14.2)
+  const cameraControllerRef = useRef<CameraController | null>(null)
+  const cameraCleanupRef = useRef<(() => void) | null>(null)
 
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
@@ -124,10 +123,14 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [pickMode, setPickMode] = useState<PickMode>('inspect')
-  const [bearing, setBearing] = useState(0)
-  const [pitch, setPitch] = useState(48)
-  const [zoom, setZoom] = useState(14.2)
-  const [orbiting, setOrbiting] = useState(false)
+  const [cameraState, setCameraState] = useState<CameraState>({
+    bearing: 0,
+    pitch: 48,
+    zoom: 14.2,
+    mode: 'perspective',
+    preset: 'campus',
+    orbiting: false,
+  })
   const [reloadKey, setReloadKey] = useState(0)
   const [origin, setOrigin] = useState<SpaceOption | null>(null)
   const [destination, setDestination] = useState<SpaceOption | null>(null)
@@ -155,34 +158,66 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
       : spaces
     return source.slice(0, value ? 120 : 40)
   }, [query, spaces])
+  const { bearing, pitch, zoom, orbiting } = cameraState
 
-  const applyCamera = useCallback((nextBearing: number, nextPitch: number, nextZoom = zoomRef.current) => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
+  const applyCamera = useCallback((nextBearing: number, nextPitch: number, nextZoom?: number) => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
 
-    const normalizedBearing = ((nextBearing % 360) + 360) % 360
-    const normalizedPitch = Math.max(0, Math.min(75, nextPitch))
-    const normalizedZoom = Math.max(11.5, Math.min(20, nextZoom))
-
-    bearingRef.current = normalizedBearing
-    pitchRef.current = normalizedPitch
-    zoomRef.current = normalizedZoom
-    setBearing(normalizedBearing)
-    setPitch(normalizedPitch)
-    setZoom(normalizedZoom)
-    setCameraTransform(mapView, { bearing: normalizedBearing, pitch: normalizedPitch, zoom: normalizedZoom })
+    cameraController.setView(
+      {
+        bearing: nextBearing,
+        pitch: nextPitch,
+        zoom: nextZoom ?? cameraController.getState().zoom,
+      },
+      { applyZoom: true },
+    )
   }, [])
 
   const applyCampusCamera = useCallback(() => {
     const mapView = mapViewRef.current
-    if (!mapView) return
-    mapView.Camera.focusOn(mapView.currentFloor)
-    applyCamera(0, 48, 14.2)
-  }, [applyCamera])
+    const cameraController = cameraControllerRef.current
+    if (!mapView || !cameraController) return
 
-  const applySiteCamera = () => applyCamera(bearingRef.current, 50, 15.6)
-  const applyBuildingCamera = () => applyCamera(bearingRef.current, 58, 17)
-  const applyTopCamera = () => applyCamera(bearingRef.current, 0, Math.max(zoomRef.current, 15.2))
+    cameraController.flyToFloor(mapView.currentFloor, {
+      bearing: 0,
+      pitch: 48,
+      zoom: 14.2,
+      preset: 'campus',
+      applyZoom: true,
+    })
+  }, [])
+
+  const applySiteCamera = () => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+    cameraController.setView({
+      bearing: cameraController.getState().bearing,
+      pitch: 50,
+      zoom: 15.6,
+      preset: 'site',
+    }, { applyZoom: true })
+  }
+  const applyBuildingCamera = () => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+    cameraController.setView({
+      bearing: cameraController.getState().bearing,
+      pitch: 58,
+      zoom: 17,
+      preset: 'building',
+    }, { applyZoom: true })
+  }
+  const applyTopCamera = () => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+    cameraController.setView({
+      bearing: cameraController.getState().bearing,
+      pitch: 0,
+      zoom: Math.max(cameraController.getState().zoom, 15.2),
+      preset: 'top',
+    }, { applyZoom: true })
+  }
 
   const clearRoute = useCallback(() => {
     const mapView = mapViewRef.current
@@ -201,11 +236,17 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
   }, [])
 
   const focusSpace = useCallback((space: SpaceOption) => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
 
-    mapView.Camera.focusOn(space.raw)
-    applyCamera(bearingRef.current, Math.max(pitchRef.current, 48), Math.max(zoomRef.current, 16.2))
+    const currentCameraState = cameraController.getState()
+    cameraController.flyToRoom(space.raw, {
+      bearing: currentCameraState.bearing,
+      pitch: Math.max(currentCameraState.pitch, 48),
+      zoom: Math.max(currentCameraState.zoom, 16.2),
+      preset: 'room',
+      applyZoom: true,
+    })
     setSelectedSpace(space)
 
     if (pickMode === 'origin') {
@@ -217,7 +258,7 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
       setPickMode('inspect')
       setRouteError('Destination selected. Draw the route when ready.')
     }
-  }, [applyCamera, pickMode])
+  }, [pickMode])
 
   const drawRoute = useCallback(async () => {
     const mapData = mapDataRef.current
@@ -269,8 +310,17 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
       setRouteDistance(Number.isFinite(distance) ? distance : null)
       setRouteInstructions(instructions)
       setRouteActive(true)
-      mapView.Camera.focusOn(destination.raw)
-      applyCamera(bearingRef.current, 55, Math.max(zoomRef.current, 16.6))
+      const cameraController = cameraControllerRef.current
+      if (cameraController) {
+        const currentCameraState = cameraController.getState()
+        cameraController.flyToRoom(destination.raw, {
+          bearing: currentCameraState.bearing,
+          pitch: 55,
+          zoom: Math.max(currentCameraState.zoom, 16.6),
+          preset: 'room',
+          applyZoom: true,
+        })
+      }
     } catch (error) {
       setRouteError(error instanceof Error ? error.message : 'Unable to draw navigation route.')
     } finally {
@@ -290,6 +340,16 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
     })
     mapViewRef.current = mapView
     mapDataRef.current = mapData
+    const cameraController = createCameraController(mapView, {
+      initialPitch: 48,
+      initialZoom: 14.2,
+      initialPreset: 'campus',
+      minZoom: 11.5,
+      maxZoom: 20,
+      orbitStep: 3,
+    })
+    cameraControllerRef.current = cameraController
+    cameraCleanupRef.current = cameraController.subscribe(setCameraState)
 
     const currentFloorName = safeName(mapView.currentFloor?.name, 'Current floor')
     const floorOptions = normalizeFloors(mapData, { sort: 'semantic-asc' })
@@ -307,27 +367,19 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
     mapView.on('floor-change', (event: FloorChangeEvent) => {
       setCurrentFloorId(String(event.floor.id))
       if (!routeActive) {
-        mapView.Camera.focusOn(event.floor)
-        applyCamera(bearingRef.current, pitchRef.current, zoomRef.current)
+        const currentCameraState = cameraController.getState()
+        cameraController.flyToFloor(event.floor, {
+          bearing: currentCameraState.bearing,
+          pitch: currentCameraState.pitch,
+          zoom: currentCameraState.zoom,
+          preset: 'floor',
+          applyZoom: true,
+        })
       }
     })
 
     mapView.on('camera-change', (transform: CameraChangeEvent) => {
-      if (typeof transform.bearing === 'number') {
-        const nextBearing = ((transform.bearing % 360) + 360) % 360
-        bearingRef.current = nextBearing
-        setBearing(nextBearing)
-      }
-      if (typeof transform.pitch === 'number') {
-        const nextPitch = Math.round(transform.pitch)
-        pitchRef.current = nextPitch
-        setPitch(nextPitch)
-      }
-      if (typeof transform.zoom === 'number') {
-        const nextZoom = Number(transform.zoom.toFixed(1))
-        zoomRef.current = nextZoom
-        setZoom(nextZoom)
-      }
+      cameraController.syncFromCameraChange(transform)
     })
 
     mapView.on('click', (event: MapClickEvent) => {
@@ -359,8 +411,10 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
 
     return () => {
       cancelled = true
-      if (orbitTimerRef.current) window.clearInterval(orbitTimerRef.current)
-      orbitTimerRef.current = null
+      cameraCleanupRef.current?.()
+      cameraCleanupRef.current = null
+      cameraControllerRef.current?.destroy()
+      cameraControllerRef.current = null
       mapViewRef.current?.destroy()
       mapViewRef.current = null
       mapDataRef.current = null
@@ -401,18 +455,11 @@ function MappedinFullMapExperience({ variant }: MappedinFullMapExperienceProps) 
   }
 
   const toggleOrbit = () => {
-    if (orbitTimerRef.current) {
-      window.clearInterval(orbitTimerRef.current)
-      orbitTimerRef.current = null
-      setOrbiting(false)
-      return
-    }
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
 
-    setOrbiting(true)
-    orbitTimerRef.current = window.setInterval(() => {
-      const next = (bearingRef.current + 3) % 360
-      applyCamera(next, Math.max(pitchRef.current, 48), zoomRef.current)
-    }, 120)
+    if (cameraController.getState().orbiting) cameraController.stopOrbit()
+    else cameraController.orbit()
   }
 
   const enterFullscreen = async () => {

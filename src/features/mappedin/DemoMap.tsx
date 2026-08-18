@@ -14,6 +14,11 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import {
+  createCameraController,
+  type CameraController,
+  type CameraState,
+} from './core/cameraController'
 import { normalizeFloors } from './core/floors'
 import { initializeMappedinMap } from './core/mapLifecycle'
 import { enableSpaceInteractivity, normalizeSpaces } from './core/spaces'
@@ -123,8 +128,9 @@ function DemoMapContent() {
   const panelRef = useRef<HTMLDivElement>(null)
   const mapViewRef = useRef<MapView | null>(null)
   const mapDataRef = useRef<MapData | null>(null)
+  const cameraControllerRef = useRef<CameraController | null>(null)
+  const cameraCleanupRef = useRef<(() => void) | null>(null)
   const searchCleanupRef = useRef<(() => void) | null>(null)
-  const bearingRef = useRef(0)
 
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
@@ -133,15 +139,23 @@ function DemoMapContent() {
   const [currentFloorId, setCurrentFloorId] = useState('')
   const [labelsVisible, setLabelsVisible] = useState(true)
   const [selectedSpace, setSelectedSpace] = useState('Select a mapped room')
-  const [cameraMode, setCameraMode] = useState<'3d' | 'top'>('3d')
+  const [cameraState, setCameraState] = useState<CameraState>({
+    bearing: 0,
+    pitch: 55,
+    zoom: 14.2,
+    mode: 'perspective',
+    preset: 'perspective',
+    orbiting: false,
+  })
   const [locationState, setLocationState] = useState<LocationState>({
     status: 'idle',
     message: 'Location is off until you request it.',
   })
+  const cameraMode = cameraState.mode === 'top' ? 'top' : '3d'
 
   const selectSpace = useCallback((space: MappedinSpace, mapView: MapView) => {
     const name = space.name?.trim() || 'Unnamed mapped location'
-    mapView.Camera.focusOn(space)
+    cameraControllerRef.current?.flyToRoom(space)
     setSelectedSpace(name)
     updateDashboardLocation(name, mapView.currentFloor.name, space.id)
   }, [])
@@ -198,6 +212,13 @@ function DemoMapContent() {
     mapViewRef.current = mapView
     mapDataRef.current = mapData
 
+    const cameraController = createCameraController(mapView, {
+      initialPitch: 55,
+      initialPreset: 'perspective',
+    })
+    cameraControllerRef.current = cameraController
+    cameraCleanupRef.current = cameraController.subscribe(setCameraState)
+
     const floorOptions = normalizeFloors(mapData, { sort: 'elevation-desc' })
 
     setFloors(floorOptions)
@@ -213,11 +234,11 @@ function DemoMapContent() {
 
     mapView.on('floor-change', (event) => {
       setCurrentFloorId(event.floor.id)
-      mapView.Camera.focusOn(event.floor)
+      cameraController.flyToFloor(event.floor)
     })
 
     mapView.on('camera-change', (transform) => {
-      bearingRef.current = transform.bearing
+      cameraController.syncFromCameraChange(transform)
     })
 
     mapView.on('click', (event) => {
@@ -227,7 +248,7 @@ function DemoMapContent() {
 
       if (space) {
         const name = space.name?.trim() || 'Unnamed mapped location'
-        mapView.Camera.focusOn(space)
+        cameraController.flyToRoom(space)
         setSelectedSpace(name)
         updateDashboardLocation(
           name,
@@ -244,8 +265,7 @@ function DemoMapContent() {
 
     searchCleanupRef.current = wireDashboardSearch(mapView, mapData) ?? null
 
-    mapView.Camera.focusOn(mapView.currentFloor)
-    mapView.Camera.set({ pitch: 55, bearing: 0 })
+    cameraController.reset(mapView.currentFloor)
     setLoadState('ready')
     return mapView
   }, [wireDashboardSearch])
@@ -274,6 +294,10 @@ function DemoMapContent() {
       cancelled = true
       searchCleanupRef.current?.()
       searchCleanupRef.current = null
+      cameraCleanupRef.current?.()
+      cameraCleanupRef.current = null
+      cameraControllerRef.current?.destroy()
+      cameraControllerRef.current = null
       mapViewRef.current = null
       mapDataRef.current = null
       activeMapView?.destroy()
@@ -295,32 +319,27 @@ function DemoMapContent() {
   }
 
   const rotateCamera = (degrees: number) => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
 
-    const nextBearing = (bearingRef.current + degrees + 360) % 360
-    bearingRef.current = nextBearing
-    mapView.Camera.set({ bearing: nextBearing, pitch: 55 })
-    setCameraMode('3d')
+    if (degrees < 0) cameraController.rotateLeft(Math.abs(degrees))
+    else cameraController.rotateRight(degrees)
   }
 
   const toggleCameraMode = () => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
 
-    const nextMode = cameraMode === '3d' ? 'top' : '3d'
-    mapView.Camera.set({ pitch: nextMode === 'top' ? 0 : 55 })
-    setCameraMode(nextMode)
+    if (cameraState.mode === 'perspective') cameraController.topView()
+    else cameraController.perspectiveView(55)
   }
 
   const resetCamera = () => {
     const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!mapView || !cameraController) return
 
-    bearingRef.current = 0
-    mapView.Camera.focusOn(mapView.currentFloor)
-    mapView.Camera.set({ bearing: 0, pitch: 55 })
-    setCameraMode('3d')
+    cameraController.reset(mapView.currentFloor)
   }
 
   const requestLocation = () => {

@@ -22,6 +22,11 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import {
+  createCameraController,
+  type CameraController,
+  type CameraState,
+} from './core/cameraController'
 import { normalizeFloors } from './core/floors'
 import { initializeMappedinMap } from './core/mapLifecycle'
 import { enableSpaceInteractivity, normalizeSpaces } from './core/spaces'
@@ -87,7 +92,8 @@ function MappedinImmersiveDemoPage() {
   const shellRef = useRef<HTMLDivElement>(null)
   const mapViewRef = useRef<MapView | null>(null)
   const mapDataRef = useRef<MapData | null>(null)
-  const bearingRef = useRef(0)
+  const cameraControllerRef = useRef<CameraController | null>(null)
+  const cameraCleanupRef = useRef<(() => void) | null>(null)
 
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
@@ -98,7 +104,14 @@ function MappedinImmersiveDemoPage() {
   const [selectedLocation, setSelectedLocation] =
     useState<SelectedLocation | null>(null)
   const [labelsVisible, setLabelsVisible] = useState(true)
-  const [cameraMode, setCameraMode] = useState<'3d' | 'top'>('3d')
+  const [cameraState, setCameraState] = useState<CameraState>({
+    bearing: 0,
+    pitch: 55,
+    zoom: 14.2,
+    mode: 'perspective',
+    preset: 'perspective',
+    orbiting: false,
+  })
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [chromeVisible, setChromeVisible] = useState(true)
@@ -109,6 +122,7 @@ function MappedinImmersiveDemoPage() {
     message:
       'Location is off. Browser GPS can report your true coordinates, but a reliable indoor blue dot requires on-site indoor positioning.',
   })
+  const cameraMode = cameraState.mode === 'top' ? 'top' : '3d'
 
   const selectedFloor = useMemo(
     () => floors.find((floor) => floor.id === currentFloorId),
@@ -126,9 +140,10 @@ function MappedinImmersiveDemoPage() {
 
   const selectSpace = useCallback((spaceOption: SpaceOption) => {
     const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!mapView || !cameraController) return
 
-    mapView.Camera.focusOn(spaceOption.space)
+    cameraController.flyToRoom(spaceOption.space)
     setSelectedLocation({
       id: spaceOption.id,
       name: spaceOption.name,
@@ -149,6 +164,13 @@ function MappedinImmersiveDemoPage() {
 
     mapViewRef.current = mapView
     mapDataRef.current = mapData
+
+    const cameraController = createCameraController(mapView, {
+      initialPitch: 55,
+      initialPreset: 'perspective',
+    })
+    cameraControllerRef.current = cameraController
+    cameraCleanupRef.current = cameraController.subscribe(setCameraState)
 
     const floorOptions = normalizeFloors(mapData, { sort: 'elevation-desc' })
 
@@ -190,7 +212,7 @@ function MappedinImmersiveDemoPage() {
     })
 
     mapView.on('camera-change', (transform) => {
-      bearingRef.current = transform.bearing
+      cameraController.syncFromCameraChange(transform)
     })
 
     mapView.on('click', (event) => {
@@ -203,7 +225,7 @@ function MappedinImmersiveDemoPage() {
 
       if (space) {
         const name = space.name?.trim() || 'Unnamed mapped location'
-        mapView.Camera.focusOn(space)
+        cameraController.flyToRoom(space)
         setSelectedLocation({
           id: space.id,
           name,
@@ -225,8 +247,7 @@ function MappedinImmersiveDemoPage() {
       }
     })
 
-    mapView.Camera.focusOn(mapView.currentFloor)
-    mapView.Camera.set({ pitch: 55, bearing: 0 })
+    cameraController.reset(mapView.currentFloor)
 
     setLoadState('ready')
     return mapView
@@ -254,6 +275,10 @@ function MappedinImmersiveDemoPage() {
 
     return () => {
       cancelled = true
+      cameraCleanupRef.current?.()
+      cameraCleanupRef.current = null
+      cameraControllerRef.current?.destroy()
+      cameraControllerRef.current = null
       mapViewRef.current = null
       mapDataRef.current = null
       activeMapView?.destroy()
@@ -279,32 +304,27 @@ function MappedinImmersiveDemoPage() {
   }
 
   const rotateCamera = (degrees: number) => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
 
-    const nextBearing = (bearingRef.current + degrees + 360) % 360
-    bearingRef.current = nextBearing
-    mapView.Camera.set({ bearing: nextBearing, pitch: 55 })
-    setCameraMode('3d')
+    if (degrees < 0) cameraController.rotateLeft(Math.abs(degrees))
+    else cameraController.rotateRight(degrees)
   }
 
   const toggleCameraMode = () => {
-    const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
 
-    const nextMode = cameraMode === '3d' ? 'top' : '3d'
-    mapView.Camera.set({ pitch: nextMode === 'top' ? 0 : 55 })
-    setCameraMode(nextMode)
+    if (cameraState.mode === 'perspective') cameraController.topView()
+    else cameraController.perspectiveView(55)
   }
 
   const resetCamera = () => {
     const mapView = mapViewRef.current
-    if (!mapView) return
+    const cameraController = cameraControllerRef.current
+    if (!mapView || !cameraController) return
 
-    bearingRef.current = 0
-    mapView.Camera.focusOn(mapView.currentFloor)
-    mapView.Camera.set({ bearing: 0, pitch: 55 })
-    setCameraMode('3d')
+    cameraController.reset(mapView.currentFloor)
   }
 
   const enterFullscreen = async () => {
