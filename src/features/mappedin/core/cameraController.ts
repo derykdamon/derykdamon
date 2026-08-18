@@ -1,4 +1,8 @@
 import type { MapView } from '../types/mappedinTypes'
+import {
+  presenceActions,
+  type PresenceActions,
+} from './presenceSubsystem'
 
 export type CameraMode = 'top' | 'perspective'
 
@@ -38,6 +42,7 @@ type CameraSetOptions = {
 }
 
 type CameraFocusTarget = Parameters<MapView['Camera']['focusOn']>[0]
+type CameraPresenceActions = Pick<PresenceActions, 'setCurrentCamera'>
 
 type CameraControllerOptions = {
   initialBearing?: number
@@ -50,6 +55,7 @@ type CameraControllerOptions = {
   maxZoom?: number
   orbitStep?: number
   orbitIntervalMs?: number
+  presence?: CameraPresenceActions | null
 }
 
 type CameraStateListener = (state: CameraState) => void
@@ -86,6 +92,7 @@ export class CameraController {
   private readonly maxZoom: number
   private readonly orbitStep: number
   private readonly orbitIntervalMs: number
+  private readonly presence: CameraPresenceActions | null
   private readonly listeners = new Set<CameraStateListener>()
   private orbitTimer: number | null = null
   private state: CameraState
@@ -98,6 +105,8 @@ export class CameraController {
     this.maxZoom = options.maxZoom ?? 19.5
     this.orbitStep = options.orbitStep ?? 2.5
     this.orbitIntervalMs = options.orbitIntervalMs ?? 120
+    this.presence =
+      options.presence === undefined ? presenceActions : options.presence
     this.state = {
       bearing: normalizeBearing(options.initialBearing ?? 0),
       pitch: clamp(options.initialPitch ?? 55, this.minPitch, this.maxPitch),
@@ -106,6 +115,7 @@ export class CameraController {
       preset: options.initialPreset ?? 'perspective',
       orbiting: false,
     }
+    this.writePresence()
   }
 
   subscribe(listener: CameraStateListener) {
@@ -284,7 +294,12 @@ export class CameraController {
   }
 
   private notify() {
+    this.writePresence()
     this.listeners.forEach((listener) => listener(this.state))
+  }
+
+  private writePresence() {
+    this.presence?.setCurrentCamera(this.state)
   }
 }
 
