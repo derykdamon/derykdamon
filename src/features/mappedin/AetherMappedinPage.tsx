@@ -62,6 +62,24 @@ import type {
 
 type AetherShellState = LoadState
 
+function waitForFirstMapRender(mapView: MapView) {
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const timeout = window.setTimeout(finish, 1000)
+
+    function finish() {
+      if (settled) return
+
+      settled = true
+      window.clearTimeout(timeout)
+      mapView.off('post-render', finish)
+      resolve()
+    }
+
+    mapView.on('post-render', finish)
+  })
+}
+
 function AetherMappedinPage() {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapViewRef = useRef<MapView | null>(null)
@@ -197,7 +215,7 @@ function AetherMappedinPage() {
     if (!mapView) return
 
     mapView.Labels.removeAll()
-    await Promise.all(
+    const results = await Promise.allSettled(
       worldSelectors.getSpaces().slice(0, 600).map((space) =>
         mapView.Labels.add(space.raw, space.name, {
           interactive: true,
@@ -216,6 +234,11 @@ function AetherMappedinPage() {
         }),
       ),
     )
+
+    const failedLabel = results.find((result) => result.status === 'rejected')
+    if (failedLabel?.status === 'rejected') {
+      throw failedLabel.reason
+    }
   }, [])
 
   const clearRoute = useCallback(() => {
@@ -537,8 +560,12 @@ function AetherMappedinPage() {
       return
     }
 
-    await addWorldLabels()
-    setLabelsVisible(true)
+    try {
+      await addWorldLabels()
+      setLabelsVisible(true)
+    } catch (error) {
+      console.warn('Aether labels are waiting for the map renderer:', error)
+    }
   }, [addWorldLabels, labelsVisible])
 
   const loadMap = useCallback(async () => {
@@ -603,6 +630,7 @@ function AetherMappedinPage() {
       initialPreset: 'top',
     })
     cameraControllerRef.current = cameraController
+    await waitForFirstMapRender(mapView)
     cameraController.reset(mapView.currentFloor, {
       pitch: 0,
       zoom: 13.2,
@@ -623,14 +651,28 @@ function AetherMappedinPage() {
         duration: 1400,
         easing: 'ease-in-out',
       })
-    }, 180)
+    }, 420)
 
     labelRevealTimerRef.current = window.setTimeout(() => {
-      void addWorldLabels().then(() => {
-        setLabelsVisible(true)
-        labelRevealTimerRef.current = null
-      })
-    }, 760)
+      void addWorldLabels()
+        .then(() => {
+          setLabelsVisible(true)
+          labelRevealTimerRef.current = null
+        })
+        .catch((error) => {
+          console.warn('Aether labels are waiting for the map renderer:', error)
+          labelRevealTimerRef.current = window.setTimeout(() => {
+            void addWorldLabels()
+              .then(() => {
+                setLabelsVisible(true)
+                labelRevealTimerRef.current = null
+              })
+              .catch(() => {
+                labelRevealTimerRef.current = null
+              })
+          }, 900)
+        })
+    }, 1200)
 
     mapView.on('floor-change', (event) => {
       presenceActions.setCurrentFloor({

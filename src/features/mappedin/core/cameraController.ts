@@ -79,7 +79,11 @@ function modeFromPitch(pitch: number): CameraMode {
 }
 
 function setCameraTransform(mapView: MapView, transform: CameraTransform) {
-  ;(mapView.Camera.set as (nextTransform: CameraTransform) => void)(transform)
+  try {
+    ;(mapView.Camera.set as (nextTransform: CameraTransform) => void)(transform)
+  } catch (error) {
+    console.warn('Aether camera transform skipped until map is ready:', error)
+  }
 }
 
 function animateCameraTransform(
@@ -93,12 +97,28 @@ function animateCameraTransform(
     options?: { duration?: number; easing?: CameraSetOptions['easing'] },
   ) => Promise<void>
 
-  void animateTo(
-    transform,
-    duration === undefined && easing === undefined
-      ? undefined
-      : { duration, easing },
-  )
+  try {
+    void animateTo(
+      transform,
+      duration === undefined && easing === undefined
+        ? undefined
+        : { duration, easing },
+    ).catch((error) => {
+      console.warn('Aether camera animation skipped until map is ready:', error)
+    })
+  } catch (error) {
+    console.warn('Aether camera animation skipped until map is ready:', error)
+  }
+}
+
+function focusCameraTarget(mapView: MapView, target: CameraFocusTarget) {
+  try {
+    mapView.Camera.focusOn(target)
+    return true
+  } catch (error) {
+    console.warn('Aether camera focus skipped until map is ready:', error)
+    return false
+  }
 }
 
 function hasCameraTransform(options: CameraActionOptions) {
@@ -178,7 +198,7 @@ export class CameraController {
   }
 
   flyToRoom(target: CameraFocusTarget, options: CameraActionOptions = {}) {
-    this.mapView.Camera.focusOn(target)
+    if (!focusCameraTarget(this.mapView, target)) return
     if (!hasCameraTransform(options)) return
 
     this.setView(
@@ -198,7 +218,7 @@ export class CameraController {
   }
 
   flyToFloor(target: CameraFocusTarget, options: CameraActionOptions = {}) {
-    this.mapView.Camera.focusOn(target)
+    if (!focusCameraTarget(this.mapView, target)) return
     if (!hasCameraTransform(options)) return
 
     this.setView(
@@ -219,7 +239,7 @@ export class CameraController {
 
   reset(target: CameraFocusTarget, options: CameraActionOptions = {}) {
     this.stopOrbit()
-    this.mapView.Camera.focusOn(target)
+    if (!focusCameraTarget(this.mapView, target)) return
     this.setView(
       {
         bearing: options.bearing ?? 0,
