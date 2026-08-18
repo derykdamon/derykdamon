@@ -35,10 +35,14 @@ type CameraTransform = {
 type CameraActionOptions = CameraTransform & {
   preset?: CameraPreset
   applyZoom?: boolean
+  animate?: boolean
+  duration?: number
 }
 
 type CameraSetOptions = {
   applyZoom?: boolean
+  animate?: boolean
+  duration?: number
 }
 
 type CameraFocusTarget = Parameters<MapView['Camera']['focusOn']>[0]
@@ -74,6 +78,19 @@ function modeFromPitch(pitch: number): CameraMode {
 
 function setCameraTransform(mapView: MapView, transform: CameraTransform) {
   ;(mapView.Camera.set as (nextTransform: CameraTransform) => void)(transform)
+}
+
+function animateCameraTransform(
+  mapView: MapView,
+  transform: CameraTransform,
+  duration?: number,
+) {
+  const animateTo = mapView.Camera.animateTo as (
+    nextTransform: CameraTransform,
+    options?: { duration?: number },
+  ) => Promise<void>
+
+  void animateTo(transform, duration === undefined ? undefined : { duration })
 }
 
 function hasCameraTransform(options: CameraActionOptions) {
@@ -163,7 +180,11 @@ export class CameraController {
         zoom: options.zoom,
         preset: options.preset ?? 'room',
       },
-      { applyZoom: options.applyZoom },
+      {
+        animate: options.animate,
+        applyZoom: options.applyZoom,
+        duration: options.duration,
+      },
     )
   }
 
@@ -178,7 +199,11 @@ export class CameraController {
         zoom: options.zoom,
         preset: options.preset ?? 'floor',
       },
-      { applyZoom: options.applyZoom },
+      {
+        animate: options.animate,
+        applyZoom: options.applyZoom,
+        duration: options.duration,
+      },
     )
   }
 
@@ -192,7 +217,11 @@ export class CameraController {
         zoom: options.zoom,
         preset: options.preset ?? (options.zoom === undefined ? 'perspective' : 'campus'),
       },
-      { applyZoom: options.applyZoom },
+      {
+        animate: options.animate,
+        applyZoom: options.applyZoom,
+        duration: options.duration,
+      },
     )
   }
 
@@ -281,7 +310,11 @@ export class CameraController {
       nextTransform.zoom = nextZoom
     }
 
-    setCameraTransform(this.mapView, nextTransform)
+    if (options.animate) {
+      animateCameraTransform(this.mapView, nextTransform, options.duration)
+    } else {
+      setCameraTransform(this.mapView, nextTransform)
+    }
     this.notify()
   }
 

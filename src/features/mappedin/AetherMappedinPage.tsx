@@ -12,7 +12,13 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AetherShell from './components/AetherShell'
+import {
+  createCameraController,
+  type CameraController,
+} from './core/cameraController'
 import { initializeMappedinMap } from './core/mapLifecycle'
+import { presenceActions } from './core/presenceSubsystem'
+import { worldActions } from './core/worldSubsystem'
 import type { LoadState, MapView } from './types/mappedinTypes'
 
 type AetherShellState = LoadState
@@ -20,6 +26,8 @@ type AetherShellState = LoadState
 function AetherMappedinPage() {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapViewRef = useRef<MapView | null>(null)
+  const cameraControllerRef = useRef<CameraController | null>(null)
+  const wakeTimerRef = useRef<number | null>(null)
   const [loadState, setLoadState] = useState<AetherShellState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
@@ -31,9 +39,66 @@ function AetherMappedinPage() {
     setLoadState('loading')
     setErrorMessage('')
 
-    const { mapView } = await initializeMappedinMap(mapElement)
+    if (wakeTimerRef.current) {
+      window.clearTimeout(wakeTimerRef.current)
+      wakeTimerRef.current = null
+    }
+
+    const { mapData, mapView, token } = await initializeMappedinMap(mapElement)
     mapViewRef.current = mapView
+
+    worldActions.normalizeFromMapData(mapData, {
+      fallbackFloorName: mapView.currentFloor?.name || 'Mapped floor',
+      floorSort: 'semantic-asc',
+    })
+    worldActions.setVenue({
+      type: 'venue',
+      worldId: `venue:${token.mapId}`,
+      externalId: token.mapId,
+      name: 'Mappedin Venue',
+    })
+    worldActions.setBuilding({
+      type: 'building',
+      worldId: `building:${token.mapId}`,
+      venueId: `venue:${token.mapId}`,
+      externalId: token.mapId,
+      name: 'Aether Building',
+    })
+
+    presenceActions.setCurrentFloor({
+      id: String(mapView.currentFloor.id),
+      worldId: `floor:${mapView.currentFloor.id}`,
+      type: 'floor',
+      name: mapView.currentFloor.name || 'Current floor',
+      elevation: Number(mapView.currentFloor.elevation ?? 0),
+    })
+
+    const cameraController = createCameraController(mapView, {
+      initialPitch: 0,
+      initialZoom: 13.2,
+      initialPreset: 'top',
+    })
+    cameraControllerRef.current = cameraController
+    cameraController.reset(mapView.currentFloor, {
+      pitch: 0,
+      zoom: 13.2,
+      preset: 'top',
+      applyZoom: true,
+    })
+
     setLoadState('ready')
+
+    wakeTimerRef.current = window.setTimeout(() => {
+      cameraController.flyToFloor(mapView.currentFloor, {
+        bearing: 18,
+        pitch: 48,
+        zoom: 14.2,
+        preset: 'campus',
+        applyZoom: true,
+        animate: true,
+        duration: 1400,
+      })
+    }, 180)
 
     return mapView
   }, [])
@@ -60,6 +125,12 @@ function AetherMappedinPage() {
 
     return () => {
       cancelled = true
+      if (wakeTimerRef.current) window.clearTimeout(wakeTimerRef.current)
+      wakeTimerRef.current = null
+      cameraControllerRef.current?.destroy()
+      cameraControllerRef.current = null
+      worldActions.reset()
+      presenceActions.reset()
       mapViewRef.current = null
       activeMapView?.destroy()
     }
@@ -67,6 +138,7 @@ function AetherMappedinPage() {
 
   return (
     <AetherShell
+      mapReady={loadState === 'ready'}
       mapCanvas={<div ref={mapElementRef} className="h-full w-full" />}
       topBar={
         <div className="flex items-center justify-between gap-4 px-4 py-3.5">

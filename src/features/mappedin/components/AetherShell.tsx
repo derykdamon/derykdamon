@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 export type AetherShellProps = {
   mapCanvas: ReactNode
+  mapReady?: boolean
   topBar?: ReactNode
   topOmnibox?: ReactNode
   leftRail?: ReactNode
@@ -24,6 +25,7 @@ function AetherGlassPanel({ children }: { children: ReactNode }) {
 
 function AetherShell({
   mapCanvas,
+  mapReady = false,
   topBar,
   topOmnibox,
   leftRail,
@@ -38,8 +40,10 @@ function AetherShell({
   return (
     <div className="relative h-[100dvh] overflow-hidden bg-[#03070c] text-slate-100">
       <div className="absolute inset-0 bg-[#03070c]">{mapCanvas}</div>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(34,211,238,0.12),transparent_34%),linear-gradient(90deg,rgba(3,7,12,0.62),transparent_24%,transparent_76%,rgba(3,7,12,0.66)),linear-gradient(180deg,rgba(3,7,12,0.72),transparent_20%,transparent_72%,rgba(3,7,12,0.8))]" />
-      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_140px_rgba(0,0,0,0.72)]" />
+      {!mapReady && (
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(34,211,238,0.12),transparent_34%),linear-gradient(90deg,rgba(3,7,12,0.62),transparent_24%,transparent_76%,rgba(3,7,12,0.66)),linear-gradient(180deg,rgba(3,7,12,0.72),transparent_20%,transparent_72%,rgba(3,7,12,0.8))]" />
+      )}
+      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_90px_rgba(0,0,0,0.48)] transition-opacity duration-700" />
 
       {blueDot && (
         <div className="pointer-events-none absolute inset-0 z-20">{blueDot}</div>
