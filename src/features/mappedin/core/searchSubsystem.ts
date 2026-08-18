@@ -315,19 +315,31 @@ export class SearchSubsystem {
 
     if (!result) return null
 
+    const results = this.state.results.some(
+      (currentResult) =>
+        currentResult.id === result.id && currentResult.type === result.type,
+    )
+      ? this.state.results
+      : [result]
+
     this.writePresence(result)
     this.presence?.setCurrentSearch({
-      query: this.state.query,
-      resultCount: this.state.results.length,
+      query: result.name,
+      resultCount: results.length,
       selectedResultId: result.id,
       selectedResultName: result.name,
     })
-    this.setState({ selected: result })
+    this.setState({
+      query: result.name,
+      results,
+      selected: result,
+    })
     return result
   }
 
   clear() {
     this.presence?.setCurrentSelection({ type: 'none' })
+    this.presence?.setCurrentSpace(null)
     this.presence?.setCurrentFocus({ type: 'none' })
     this.presence?.setCurrentSearch({
       query: '',
@@ -365,6 +377,10 @@ export class SearchSubsystem {
   }
 
   private writePresence(result: SearchResult) {
+    if (result.type !== 'space') {
+      this.presence?.setCurrentSpace(null)
+    }
+
     this.presence?.setCurrentSelection(createPresenceSelection(result))
     this.presence?.setCurrentFocus({
       type: 'selection',

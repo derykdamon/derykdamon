@@ -24,6 +24,8 @@ import {
 } from './core/presenceSubsystem'
 import {
   searchActions,
+  searchSelectors,
+  type SearchState,
   type SearchResult,
   type SearchSuggestion,
 } from './core/searchSubsystem'
@@ -48,8 +50,10 @@ function AetherMappedinPage() {
   const [loadState, setLoadState] = useState<AetherShellState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
-  const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
+  const [searchState, setSearchState] = useState<SearchState>(
+    searchSelectors.getState(),
+  )
   const [presenceState, setPresenceState] = useState<PresenceState>(
     presenceSelectors.getState(),
   )
@@ -108,6 +112,27 @@ function AetherMappedinPage() {
       easing: 'ease-in-out',
     })
   }, [])
+
+  const syncPresenceFloor = useCallback((floorId: string) => {
+    const floor = worldSelectors.getFloorById(floorId)
+    if (!floor) return
+
+    presenceActions.setCurrentFloor({
+      id: floor.id,
+      worldId: floor.worldId,
+      type: 'floor',
+      name: floor.name,
+      elevation: floor.elevation,
+    })
+  }, [])
+
+  const activateFloor = useCallback(
+    (floorId: string) => {
+      mapViewRef.current?.setFloor(floorId)
+      syncPresenceFloor(floorId)
+    },
+    [syncPresenceFloor],
+  )
 
   const loadMap = useCallback(async () => {
     const mapElement = mapElementRef.current
@@ -193,6 +218,29 @@ function AetherMappedinPage() {
       })
     }, 180)
 
+    mapView.on('floor-change', (event) => {
+      presenceActions.setCurrentFloor({
+        id: String(event.floor.id),
+        worldId: `floor:${event.floor.id}`,
+        type: 'floor',
+        name: event.floor.name || 'Current floor',
+        elevation: Number(event.floor.elevation ?? 0),
+      })
+    })
+
+    mapView.on('camera-change', (transform) => {
+      cameraController.syncFromCameraChange(transform)
+    })
+
+    mapView.on('click', (event) => {
+      const clickedSpace = event.spaces?.[0]
+      if (!clickedSpace?.id) return
+
+      handledSelectionRef.current = null
+      searchActions.select(String(clickedSpace.id))
+      setSuggestions([])
+    })
+
     return mapView
   }, [setAetherLoadState])
 
@@ -202,6 +250,10 @@ function AetherMappedinPage() {
 
   useEffect(() => {
     return worldSelectors.subscribe(setWorldState)
+  }, [])
+
+  useEffect(() => {
+    return searchSelectors.subscribe(setSearchState)
   }, [])
 
   useEffect(() => {
@@ -243,18 +295,7 @@ function AetherMappedinPage() {
 
     if (selection.type === 'floor') {
       clearSelectedSpaceHighlight()
-      mapView.setFloor(selection.id)
-
-      const floor = worldSelectors.getFloorById(selection.id)
-      if (floor) {
-        presenceActions.setCurrentFloor({
-          id: floor.id,
-          worldId: floor.worldId,
-          type: 'floor',
-          name: floor.name,
-          elevation: floor.elevation,
-        })
-      }
+      activateFloor(selection.id)
 
       selectionMoveTimerRef.current = window.setTimeout(() => {
         focusCurrentFloor()
@@ -266,18 +307,7 @@ function AetherMappedinPage() {
     if (selection.type === 'label') {
       clearSelectedSpaceHighlight()
       if (selection.floorId) {
-        mapView.setFloor(selection.floorId)
-
-        const floor = worldSelectors.getFloorById(selection.floorId)
-        if (floor) {
-          presenceActions.setCurrentFloor({
-            id: floor.id,
-            worldId: floor.worldId,
-            type: 'floor',
-            name: floor.name,
-            elevation: floor.elevation,
-          })
-        }
+        activateFloor(selection.floorId)
 
         selectionMoveTimerRef.current = window.setTimeout(() => {
           focusCurrentFloor()
@@ -299,18 +329,7 @@ function AetherMappedinPage() {
       selectedSpace.floorId &&
       String(mapView.currentFloor.id) !== selectedSpace.floorId
     ) {
-      mapView.setFloor(selectedSpace.floorId)
-
-      const floor = worldSelectors.getFloorById(selectedSpace.floorId)
-      if (floor) {
-        presenceActions.setCurrentFloor({
-          id: floor.id,
-          worldId: floor.worldId,
-          type: 'floor',
-          name: floor.name,
-          elevation: floor.elevation,
-        })
-      }
+      activateFloor(selectedSpace.floorId)
     }
 
     highlightSelectedSpace(selectedSpace)
@@ -325,6 +344,7 @@ function AetherMappedinPage() {
       easing: 'ease-in-out',
     })
   }, [
+    activateFloor,
     clearSelectedSpaceHighlight,
     focusCurrentFloor,
     highlightSelectedSpace,
@@ -332,8 +352,6 @@ function AetherMappedinPage() {
   ])
 
   const updateSearch = (nextQuery: string) => {
-    setQuery(nextQuery)
-
     if (!nextQuery.trim()) {
       setSuggestions([])
       searchActions.clear()
@@ -351,7 +369,6 @@ function AetherMappedinPage() {
   const selectSearchResult = (result: SearchResult) => {
     handledSelectionRef.current = null
     searchActions.select(result)
-    setQuery(result.name)
     setSuggestions([])
   }
 
@@ -460,6 +477,13 @@ function AetherMappedinPage() {
     ['Current Search', currentSearch],
     ['Loading State', presenceState.currentLoadState],
   ]
+  const selectionPanelRows = selectedSpace
+    ? [
+        ['Floor', selectedSpace.floorName],
+        ['Mappedin ID', selectedSpace.id],
+        ['Search', presenceState.currentSearch.selectedResultName ?? ''],
+      ]
+    : []
 
   return (
     <AetherShell
@@ -487,7 +511,7 @@ function AetherMappedinPage() {
             <Search size={17} className="shrink-0 text-cyan-200/80" />
             <div className="min-w-0 flex-1">
               <input
-                value={query}
+                value={searchState.query}
                 onChange={(event) => updateSearch(event.target.value)}
                 placeholder="Search rooms, floors, assets, equipment"
                 className="w-full bg-transparent text-sm font-medium text-slate-100 outline-none placeholder:text-slate-400"
@@ -499,7 +523,7 @@ function AetherMappedinPage() {
               </p>
             </div>
             <div className="hidden rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-slate-400 sm:block">
-              {query.trim() ? 'Live' : 'Idle'}
+              {searchState.query.trim() ? 'Live' : 'Idle'}
             </div>
           </label>
 
@@ -608,16 +632,31 @@ function AetherMappedinPage() {
         </div>
       }
       selection={
-        <div className="p-4">
+        <div className="space-y-3 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <MapPin size={16} className="text-cyan-300" />
             Focus
           </div>
-          <p className="mt-2 truncate text-xs text-slate-500">
+          <p className="truncate text-sm font-semibold text-slate-100">
             {selectedSpace
-              ? `${selectedSpace.name} · ${selectedSpace.floorName}`
+              ? selectedSpace.name
               : currentSelectionLabel ?? 'No selection'}
           </p>
+          {selectionPanelRows.length > 0 && (
+            <div className="grid gap-2 text-xs text-slate-400">
+              {selectionPanelRows.map(([label, value]) => (
+                <div
+                  key={label}
+                  className="flex justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2"
+                >
+                  <span>{label}</span>
+                  <span className="truncate text-right text-slate-300">
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       }
       blueDot={
