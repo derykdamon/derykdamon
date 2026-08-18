@@ -41,12 +41,33 @@ function AetherShell({
 }: AetherShellProps) {
   return (
     <div className="relative h-[100dvh] overflow-hidden bg-[#03070c] text-slate-100">
-      <div className="absolute inset-0 bg-[#03070c] contrast-[1.12] saturate-[1.12] brightness-[1.04]">{mapCanvas}</div>
+      <div
+        className={`absolute inset-0 bg-[#03070c] contrast-[1.12] saturate-[1.12] brightness-[1.04] transition-[opacity,filter,transform] duration-[1600ms] ease-out ${
+          mapReady
+            ? 'opacity-100 blur-0 animate-[aether-map-breathe_9s_ease-in-out_1.5s_infinite]'
+            : 'opacity-0 blur-sm'
+        }`}
+      >
+        {mapCanvas}
+      </div>
       {!mapReady && (
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(34,211,238,0.12),transparent_34%),linear-gradient(90deg,rgba(3,7,12,0.62),transparent_24%,transparent_76%,rgba(3,7,12,0.66)),linear-gradient(180deg,rgba(3,7,12,0.72),transparent_20%,transparent_72%,rgba(3,7,12,0.8))]" />
       )}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(34,211,238,0.08),transparent_24%),radial-gradient(circle_at_82%_14%,rgba(59,130,246,0.06),transparent_26%),radial-gradient(circle_at_50%_100%,rgba(20,184,166,0.045),transparent_30%)] opacity-45 mix-blend-screen transition-opacity duration-1000" />
-      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_72px_rgba(0,0,0,0.36)] transition-opacity duration-700" />
+      {mapReady && (
+        <div className="pointer-events-none absolute inset-0 z-10 animate-[aether-world-reveal_1800ms_ease-out_both] bg-[#03070c]" />
+      )}
+      <div
+        className={`pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(34,211,238,0.08),transparent_24%),radial-gradient(circle_at_82%_14%,rgba(59,130,246,0.06),transparent_26%),radial-gradient(circle_at_50%_100%,rgba(20,184,166,0.045),transparent_30%)] mix-blend-screen transition-opacity duration-[1800ms] ${
+          mapReady
+            ? 'animate-[aether-light-breathe_8s_ease-in-out_1.2s_infinite] opacity-45'
+            : 'opacity-0'
+        }`}
+      />
+      <div
+        className={`pointer-events-none absolute inset-0 shadow-[inset_0_0_72px_rgba(0,0,0,0.36)] transition-opacity duration-[1800ms] ${
+          mapReady ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
 
       {blueDot && (
         <div className="pointer-events-none absolute inset-0 z-20">{blueDot}</div>
@@ -127,6 +148,19 @@ function AetherShell({
         @keyframes aether-panel-up {
           from { opacity: 0; transform: translateY(16px) scale(0.985); filter: blur(8px); }
           to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @keyframes aether-world-reveal {
+          0% { opacity: 1; filter: blur(10px); }
+          58% { opacity: 0.34; filter: blur(3px); }
+          100% { opacity: 0; filter: blur(0); }
+        }
+        @keyframes aether-map-breathe {
+          0%, 100% { transform: scale(1); filter: contrast(1.12) saturate(1.12) brightness(1.04); }
+          50% { transform: scale(1.006); filter: contrast(1.16) saturate(1.16) brightness(1.07); }
+        }
+        @keyframes aether-light-breathe {
+          0%, 100% { opacity: 0.34; }
+          50% { opacity: 0.52; }
         }
         .aether-blue-dot {
           position: relative;

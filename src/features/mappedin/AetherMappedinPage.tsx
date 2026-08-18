@@ -66,6 +66,7 @@ function AetherMappedinPage() {
   const mapViewRef = useRef<MapView | null>(null)
   const cameraControllerRef = useRef<CameraController | null>(null)
   const wakeTimerRef = useRef<number | null>(null)
+  const labelRevealTimerRef = useRef<number | null>(null)
   const selectionMoveTimerRef = useRef<number | null>(null)
   const selectedSpaceRef = useRef<WorldSpace | null>(null)
   const handledSelectionRef = useRef<string | null>(null)
@@ -550,6 +551,10 @@ function AetherMappedinPage() {
       window.clearTimeout(wakeTimerRef.current)
       wakeTimerRef.current = null
     }
+    if (labelRevealTimerRef.current) {
+      window.clearTimeout(labelRevealTimerRef.current)
+      labelRevealTimerRef.current = null
+    }
 
     const { mapData, mapView, token } = await initializeMappedinMap(mapElement)
     mapViewRef.current = mapView
@@ -594,8 +599,7 @@ function AetherMappedinPage() {
         hoverColor: '#22d3ee',
       })
     })
-    await addWorldLabels()
-    setLabelsVisible(true)
+    setLabelsVisible(false)
 
     const cameraController = createCameraController(mapView, {
       initialPitch: 0,
@@ -624,6 +628,13 @@ function AetherMappedinPage() {
         easing: 'ease-in-out',
       })
     }, 180)
+
+    labelRevealTimerRef.current = window.setTimeout(() => {
+      void addWorldLabels().then(() => {
+        setLabelsVisible(true)
+        labelRevealTimerRef.current = null
+      })
+    }, 760)
 
     mapView.on('floor-change', (event) => {
       presenceActions.setCurrentFloor({
@@ -1015,10 +1026,14 @@ function AetherMappedinPage() {
     return () => {
       cancelled = true
       if (wakeTimerRef.current) window.clearTimeout(wakeTimerRef.current)
+      if (labelRevealTimerRef.current) {
+        window.clearTimeout(labelRevealTimerRef.current)
+      }
       if (selectionMoveTimerRef.current) {
         window.clearTimeout(selectionMoveTimerRef.current)
       }
       wakeTimerRef.current = null
+      labelRevealTimerRef.current = null
       selectionMoveTimerRef.current = null
       presenceProviderStopRef.current?.()
       presenceProviderStopRef.current = null
