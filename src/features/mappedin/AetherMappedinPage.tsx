@@ -1029,46 +1029,58 @@ function AetherMappedinPage() {
     worldState.venue?.name ??
     ''
   const currentFloorName =
-    presenceState.currentFloor?.name ?? currentFloor?.name ?? ''
-  const selectedSpaceName =
+    presenceState.currentFloor?.name ?? currentFloor?.name ?? 'none'
+  const currentRoomName =
+    presenceState.currentSpace?.name ??
     selectedSpace?.name ??
-    (presenceState.currentSelection.type === 'space'
-      ? presenceState.currentSelection.name
-      : '') ??
-    ''
-  const cameraBearing =
-    presenceState.currentCamera === null
-      ? ''
-      : `${Math.round(presenceState.currentCamera.bearing)}°`
-  const cameraPitch =
-    presenceState.currentCamera === null
-      ? ''
-      : `${Math.round(presenceState.currentCamera.pitch)}°`
-  const cameraZoom =
-    presenceState.currentCamera === null
-      ? ''
-      : presenceState.currentCamera.zoom.toFixed(1)
-  const currentSearchText =
-    presenceState.currentSearch.selectedResultName ??
-    presenceState.currentSearch.query
-  const currentSearch =
-    currentSearchText
-      ? [
-          currentSearchText,
-          `${presenceState.currentSearch.resultCount}`,
+    (presenceState.currentSpace?.id ? presenceState.currentSpace.id : 'none')
+  const currentSelectionSummary =
+    presenceState.currentSelection.type === 'none'
+      ? 'none'
+      : [
+          presenceState.currentSelection.type,
+          presenceState.currentSelection.name ??
+            presenceState.currentSelection.id ??
+            presenceState.currentSelection.worldId,
         ]
           .filter(Boolean)
           .join(' · ')
-      : `${presenceState.currentSearch.resultCount}`
+  const cameraSummary =
+    presenceState.currentCamera === null
+      ? 'none'
+      : [
+          `${Math.round(presenceState.currentCamera.bearing)}°`,
+          `${Math.round(presenceState.currentCamera.pitch)}° pitch`,
+          `${presenceState.currentCamera.zoom.toFixed(1)} zoom`,
+          presenceState.currentCamera.preset,
+          presenceState.currentCamera.orbiting ? 'orbiting' : undefined,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+  const currentSearchQuery = presenceState.currentSearch.query || 'none'
+  const presenceStatus = [
+    presenceState.currentLoadState,
+    presenceState.currentUserLocation.status,
+    presenceState.currentProvider.activeProvider ?? 'no provider',
+    presenceState.currentProvider.followCamera ? 'follow on' : 'follow off',
+  ].join(' · ')
+  const worldStatus = [
+    worldState.venue ? 'venue' : 'no venue',
+    worldState.building ? 'building' : 'no building',
+    `${worldState.floors.length} floors`,
+    `${worldState.spaces.length} spaces`,
+    `${worldState.labels.length} labels`,
+    `${worldState.overlays.length} overlays`,
+  ].join(' · ')
   const missionControlRows = [
-    ['Current Building', currentBuildingName],
     ['Current Floor', currentFloorName],
-    ['Selected Space', selectedSpaceName],
-    ['Camera Bearing', cameraBearing],
-    ['Camera Pitch', cameraPitch],
-    ['Camera Zoom', cameraZoom],
-    ['Current Search', currentSearch],
-    ['Loading State', presenceState.currentLoadState],
+    ['Current Room', currentRoomName],
+    ['Current Selection', currentSelectionSummary],
+    ['Camera', cameraSummary],
+    ['Search Query', currentSearchQuery],
+    ['Search Result Count', `${presenceState.currentSearch.resultCount}`],
+    ['Presence Status', presenceStatus],
+    ['World Status', worldStatus],
   ]
   const userLocation = presenceState.currentUserLocation
   const providerState = presenceState.currentProvider
