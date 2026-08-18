@@ -128,6 +128,43 @@ function AetherShell({
           from { opacity: 0; transform: translateY(16px) scale(0.985); filter: blur(8px); }
           to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         }
+        .aether-blue-dot {
+          position: relative;
+          display: grid;
+          width: 22px;
+          height: 22px;
+          place-items: center;
+          border-radius: 999px;
+          border: 3px solid rgba(255,255,255,0.96);
+          background: #22d3ee;
+          box-shadow: 0 0 0 1px rgba(8,47,73,0.32), 0 12px 32px rgba(34,211,238,0.42);
+        }
+        .aether-blue-dot::before {
+          content: "";
+          position: absolute;
+          inset: -10px;
+          border-radius: inherit;
+          background: radial-gradient(circle, rgba(34,211,238,0.36), transparent 62%);
+          animation: aether-blue-dot-pulse 1800ms ease-out infinite;
+        }
+        .aether-blue-dot span {
+          position: relative;
+          width: 6px;
+          height: 6px;
+          border-radius: inherit;
+          background: rgba(255,255,255,0.96);
+        }
+        .aether-accuracy-ring {
+          box-sizing: border-box;
+          border-radius: 999px;
+          border: 2px solid rgba(34,211,238,0.32);
+          background: rgba(34,211,238,0.08);
+          box-shadow: inset 0 0 20px rgba(34,211,238,0.16), 0 0 36px rgba(34,211,238,0.2);
+        }
+        @keyframes aether-blue-dot-pulse {
+          from { opacity: 0.7; transform: scale(0.65); }
+          to { opacity: 0; transform: scale(1.8); }
+        }
       `}</style>
     </div>
   )

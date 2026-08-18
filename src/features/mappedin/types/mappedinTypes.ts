@@ -1,11 +1,15 @@
 import {
   getMapData,
   show3dMap,
+  type Coordinate,
+  type Marker,
   type Space,
 } from '@mappedin/mappedin-js'
 
 export type MapData = Awaited<ReturnType<typeof getMapData>>
 export type MapView = Awaited<ReturnType<typeof show3dMap>>
+export type MappedinCoordinate = Coordinate
+export type MappedinMarker = Marker
 export type MappedinSpace = Space
 
 export type MappedinTokenPayload = {

@@ -42,9 +42,12 @@ export type PresenceUserLocation =
       latitude: number
       longitude: number
       accuracy?: number
+      heading?: number | null
       floorId?: string
       spaceId?: string
-      source?: 'browser' | 'blue-dot' | 'simulated' | 'manual'
+      source?: 'browser' | 'blue-dot' | 'simulated' | 'manual' | 'future'
+      followCamera?: boolean
+      updatedAt?: number
     }
 
 export type PresenceFocus =
@@ -93,6 +96,11 @@ export type PresenceSearch = {
 
 export type PresenceLoadState = 'loading' | 'ready' | 'error'
 
+export type PresenceProviderState = {
+  activeProvider: 'browser' | 'simulated' | 'future' | null
+  followCamera: boolean
+}
+
 export type PresenceState = {
   currentBuilding: PresenceBuilding | null
   currentFloor: PresenceFloor | null
@@ -104,6 +112,7 @@ export type PresenceState = {
   currentRoute: PresenceRoute
   currentSearch: PresenceSearch
   currentLoadState: PresenceLoadState
+  currentProvider: PresenceProviderState
 }
 
 export type PresenceListener = (state: PresenceState) => void
@@ -119,6 +128,7 @@ export type PresenceActions = {
   setCurrentRoute(route: PresenceRoute): void
   setCurrentSearch(search: PresenceSearch): void
   setCurrentLoadState(loadState: PresenceLoadState): void
+  setCurrentProvider(provider: PresenceProviderState): void
   reset(): void
 }
 
@@ -134,6 +144,7 @@ export type PresenceSelectors = {
   getCurrentRoute(): PresenceRoute
   getCurrentSearch(): PresenceSearch
   getCurrentLoadState(): PresenceLoadState
+  getCurrentProvider(): PresenceProviderState
   subscribe(listener: PresenceListener): () => void
 }
 
@@ -151,6 +162,10 @@ const initialPresenceState: PresenceState = {
     resultCount: 0,
   },
   currentLoadState: 'loading',
+  currentProvider: {
+    activeProvider: null,
+    followCamera: false,
+  },
 }
 
 function createInitialState(overrides: Partial<PresenceState> = {}): PresenceState {
@@ -181,6 +196,7 @@ export class PresenceSubsystem {
       getCurrentRoute: () => this.state.currentRoute,
       getCurrentSearch: () => this.state.currentSearch,
       getCurrentLoadState: () => this.state.currentLoadState,
+      getCurrentProvider: () => this.state.currentProvider,
       subscribe: (listener) => this.subscribe(listener),
     }
   }
@@ -200,6 +216,8 @@ export class PresenceSubsystem {
       setCurrentSearch: (search) => this.setState({ currentSearch: search }),
       setCurrentLoadState: (loadState) =>
         this.setState({ currentLoadState: loadState }),
+      setCurrentProvider: (provider) =>
+        this.setState({ currentProvider: provider }),
       reset: () => this.reset(),
     }
   }

@@ -18,6 +18,13 @@ import {
 } from './core/cameraController'
 import { initializeMappedinMap } from './core/mapLifecycle'
 import {
+  createBrowserPresenceProvider,
+  createSimulationPresenceProvider,
+  type PresenceProvider,
+  type PresenceProviderSource,
+  type PresenceProviderUpdate,
+} from './core/presenceProvider'
+import {
   presenceActions,
   presenceSelectors,
   type PresenceState,
@@ -35,7 +42,12 @@ import {
   type WorldSpace,
   type WorldState,
 } from './core/worldSubsystem'
-import type { LoadState, MapView } from './types/mappedinTypes'
+import type {
+  LoadState,
+  MappedinCoordinate,
+  MappedinMarker,
+  MapView,
+} from './types/mappedinTypes'
 
 type AetherShellState = LoadState
 
@@ -48,6 +60,10 @@ function AetherMappedinPage() {
   const selectedSpaceRef = useRef<WorldSpace | null>(null)
   const handledSelectionRef = useRef<string | null>(null)
   const routeRequestRef = useRef(0)
+  const presenceProviderStopRef = useRef<(() => void) | null>(null)
+  const blueDotMarkerRef = useRef<MappedinMarker | null>(null)
+  const accuracyMarkerRef = useRef<MappedinMarker | null>(null)
+  const lastPresenceCoordinateRef = useRef<MappedinCoordinate | null>(null)
   const [loadState, setLoadState] = useState<AetherShellState>('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
@@ -150,6 +166,178 @@ function AetherMappedinPage() {
     mapViewRef.current?.Navigation.clear()
     presenceActions.setCurrentRoute({ status: 'idle' })
   }, [])
+
+  const clearBlueDotMarkers = useCallback(() => {
+    const mapView = mapViewRef.current
+    if (!mapView) return
+
+    if (blueDotMarkerRef.current) {
+      mapView.Markers.remove(blueDotMarkerRef.current)
+      blueDotMarkerRef.current = null
+    }
+
+    if (accuracyMarkerRef.current) {
+      mapView.Markers.remove(accuracyMarkerRef.current)
+      accuracyMarkerRef.current = null
+    }
+  }, [])
+
+  const stopPresenceProvider = useCallback(() => {
+    presenceProviderStopRef.current?.()
+    presenceProviderStopRef.current = null
+    clearBlueDotMarkers()
+    lastPresenceCoordinateRef.current = null
+    presenceActions.setCurrentProvider({
+      activeProvider: null,
+      followCamera: false,
+    })
+    presenceActions.setCurrentUserLocation({ status: 'off' })
+  }, [clearBlueDotMarkers])
+
+  const renderBlueDot = useCallback(
+    (coordinate: MappedinCoordinate, accuracy?: number) => {
+      const mapView = mapViewRef.current
+      if (!mapView) return
+
+      const ringSize = Math.max(36, Math.min(120, Math.round(accuracy ?? 24)))
+      const ringHtml = `<div class="aether-accuracy-ring" style="width:${ringSize}px;height:${ringSize}px"></div>`
+      const dotHtml = '<div class="aether-blue-dot"><span></span></div>'
+
+      if (accuracyMarkerRef.current) {
+        mapView.Markers.remove(accuracyMarkerRef.current)
+      }
+      accuracyMarkerRef.current = mapView.Markers.add(coordinate, ringHtml, {
+        rank: 'always-visible',
+      })
+
+      if (blueDotMarkerRef.current) {
+        void mapView.Markers.animateTo(blueDotMarkerRef.current, coordinate, {
+          duration: 650,
+          easing: 'ease-in-out',
+        })
+      } else {
+        blueDotMarkerRef.current = mapView.Markers.add(coordinate, dotHtml, {
+          rank: 'always-visible',
+        })
+      }
+    },
+    [],
+  )
+
+  const applyPresenceUpdate = useCallback(
+    (update: PresenceProviderUpdate) => {
+      const mapView = mapViewRef.current
+      if (!mapView) return
+
+      const coordinate = mapView.createCoordinate({
+        latitude: update.latitude,
+        longitude: update.longitude,
+        floorId: update.floorId ?? String(mapView.currentFloor.id),
+        verticalOffset: 0.35,
+      })
+      lastPresenceCoordinateRef.current = coordinate
+      renderBlueDot(coordinate, update.accuracy)
+
+      presenceActions.setCurrentUserLocation({
+        status: 'ready',
+        latitude: update.latitude,
+        longitude: update.longitude,
+        accuracy: update.accuracy,
+        heading: update.heading,
+        floorId: coordinate.floorId,
+        source: update.source,
+        followCamera: presenceSelectors.getCurrentProvider().followCamera,
+        updatedAt: Date.now(),
+      })
+
+      if (presenceSelectors.getCurrentProvider().followCamera) {
+        void mapView.Camera.animateTo(
+          {
+            center: coordinate,
+            pitch: Math.max(
+              presenceSelectors.getCurrentCamera()?.pitch ?? 52,
+              52,
+            ),
+            zoomLevel: Math.max(
+              presenceSelectors.getCurrentCamera()?.zoom ?? 17,
+              17,
+            ),
+          },
+          { duration: 700, easing: 'ease-in-out' },
+        )
+      }
+
+      if (presenceSelectors.getCurrentRoute().status !== 'idle') {
+        mapView.Navigation.trackCoordinate(coordinate, {
+          mode: 'tethered',
+          tetherThresholdDistance: 12,
+          coordinateOutsideThresholdMode: 'tether-and-dash',
+        })
+      }
+    },
+    [renderBlueDot],
+  )
+
+  const startPresenceProvider = useCallback(
+    (source: PresenceProviderSource) => {
+      const mapView = mapViewRef.current
+      if (!mapView) return
+
+      stopPresenceProvider()
+      presenceActions.setCurrentUserLocation({ status: 'requesting' })
+      presenceActions.setCurrentProvider({
+        activeProvider: source,
+        followCamera: presenceSelectors.getCurrentProvider().followCamera,
+      })
+
+      const provider: PresenceProvider =
+        source === 'browser'
+          ? createBrowserPresenceProvider(() => String(mapView.currentFloor.id))
+          : createSimulationPresenceProvider(mapView)
+
+      presenceProviderStopRef.current = provider.start(
+        applyPresenceUpdate,
+        (error) => {
+          presenceActions.setCurrentUserLocation({ status: 'unavailable' })
+          presenceActions.setCurrentProvider({
+            activeProvider: error.source,
+            followCamera: false,
+          })
+        },
+      )
+    },
+    [applyPresenceUpdate, stopPresenceProvider],
+  )
+
+  const setCameraFollowMode = useCallback(
+    (enabled: boolean) => {
+      const currentProvider = presenceSelectors.getCurrentProvider()
+      presenceActions.setCurrentProvider({
+        ...currentProvider,
+        followCamera: enabled,
+      })
+
+      const currentLocation = presenceSelectors.getCurrentUserLocation()
+      if (currentLocation.status === 'ready') {
+        presenceActions.setCurrentUserLocation({
+          ...currentLocation,
+          followCamera: enabled,
+        })
+      }
+
+      if (enabled && lastPresenceCoordinateRef.current) {
+        void mapViewRef.current?.Camera.animateTo(
+          {
+            center: lastPresenceCoordinateRef.current,
+            pitch: 52,
+            zoomLevel: 17,
+          },
+          { duration: 700, easing: 'ease-in-out' },
+        )
+      }
+    },
+    [],
+  )
 
   const loadMap = useCallback(async () => {
     const mapElement = mapElementRef.current
@@ -567,16 +755,26 @@ function AetherMappedinPage() {
       }
       wakeTimerRef.current = null
       selectionMoveTimerRef.current = null
+      presenceProviderStopRef.current?.()
+      presenceProviderStopRef.current = null
       cameraControllerRef.current?.destroy()
       cameraControllerRef.current = null
       clearSelectedSpaceHighlight()
+      clearBlueDotMarkers()
+      lastPresenceCoordinateRef.current = null
       mapViewRef.current?.Navigation.clear()
       worldActions.reset()
       presenceActions.reset()
       mapViewRef.current = null
       activeMapView?.destroy()
     }
-  }, [clearSelectedSpaceHighlight, loadMap, reloadKey, setAetherLoadState])
+  }, [
+    clearBlueDotMarkers,
+    clearSelectedSpaceHighlight,
+    loadMap,
+    reloadKey,
+    setAetherLoadState,
+  ])
 
   const selectedSpace =
     presenceState.currentSelection.type === 'space' &&
@@ -645,6 +843,17 @@ function AetherMappedinPage() {
     ['Current Search', currentSearch],
     ['Loading State', presenceState.currentLoadState],
   ]
+  const userLocation = presenceState.currentUserLocation
+  const providerState = presenceState.currentProvider
+  const userLocationSummary =
+    userLocation.status === 'ready'
+      ? `${userLocation.latitude.toFixed(6)}, ${userLocation.longitude.toFixed(6)}`
+      : userLocation.status
+  const userLocationAccuracy =
+    userLocation.status === 'ready' && userLocation.accuracy !== undefined
+      ? `${Math.round(userLocation.accuracy)} m`
+      : ''
+  const activeProviderLabel = providerState.activeProvider ?? ''
   const currentRoute = presenceState.currentRoute
   const routeOriginName =
     currentRoute.status === 'idle' || currentRoute.origin?.type === 'none'
@@ -799,6 +1008,64 @@ function AetherMappedinPage() {
           <p className="text-xs leading-5 text-slate-500">
             {currentFloor?.name ?? 'Aether Core'}
           </p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <LocateFixed size={16} className="text-cyan-300" />
+              Presence
+            </div>
+            <div className="grid gap-2 text-xs text-slate-400">
+              {[
+                ['Provider', activeProviderLabel],
+                ['Location', userLocationSummary],
+                ['Accuracy', userLocationAccuracy],
+                ['Follow', providerState.followCamera ? 'on' : 'off'],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="flex justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2"
+                >
+                  <span>{label}</span>
+                  <span className="truncate text-right text-slate-300">
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={loadState !== 'ready'}
+                onClick={() => startPresenceProvider('browser')}
+                className="rounded-xl border border-cyan-200/20 bg-cyan-200/[0.06] px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-200/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Browser
+              </button>
+              <button
+                type="button"
+                disabled={loadState !== 'ready'}
+                onClick={() => startPresenceProvider('simulated')}
+                className="rounded-xl border border-violet-200/20 bg-violet-200/[0.06] px-3 py-2 text-xs font-semibold text-violet-100 transition hover:bg-violet-200/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Simulate
+              </button>
+              <button
+                type="button"
+                disabled={userLocation.status !== 'ready'}
+                onClick={() => setCameraFollowMode(!providerState.followCamera)}
+                className="rounded-xl border border-emerald-200/20 bg-emerald-200/[0.07] px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-200/[0.14] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Follow
+              </button>
+              <button
+                type="button"
+                disabled={userLocation.status === 'off'}
+                onClick={stopPresenceProvider}
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Off
+              </button>
+            </div>
+          </div>
         </div>
       }
       navigation={
@@ -913,13 +1180,6 @@ function AetherMappedinPage() {
               ))}
             </div>
           )}
-        </div>
-      }
-      blueDot={
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/10 text-cyan-200">
-            <LocateFixed size={18} />
-          </div>
         </div>
       }
       bottomStatusBar={
