@@ -87,6 +87,7 @@ type SearchPresenceActions = Pick<
   | 'setCurrentSpace'
   | 'setCurrentSelection'
   | 'setCurrentFocus'
+  | 'setCurrentSearch'
 >
 
 type SearchSubsystemOptions = {
@@ -282,6 +283,10 @@ export class SearchSubsystem {
       .slice(0, limit)
 
     this.setState({ query, results })
+    this.presence?.setCurrentSearch({
+      query,
+      resultCount: results.length,
+    })
     return results
   }
 
@@ -311,6 +316,12 @@ export class SearchSubsystem {
     if (!result) return null
 
     this.writePresence(result)
+    this.presence?.setCurrentSearch({
+      query: this.state.query,
+      resultCount: this.state.results.length,
+      selectedResultId: result.id,
+      selectedResultName: result.name,
+    })
     this.setState({ selected: result })
     return result
   }
@@ -318,6 +329,10 @@ export class SearchSubsystem {
   clear() {
     this.presence?.setCurrentSelection({ type: 'none' })
     this.presence?.setCurrentFocus({ type: 'none' })
+    this.presence?.setCurrentSearch({
+      query: '',
+      resultCount: 0,
+    })
     this.setState(initialSearchState)
   }
 

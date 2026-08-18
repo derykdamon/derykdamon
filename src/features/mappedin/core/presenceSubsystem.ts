@@ -73,6 +73,15 @@ export type PresenceRoute =
       metadata?: Record<string, unknown>
     }
 
+export type PresenceSearch = {
+  query: string
+  resultCount: number
+  selectedResultId?: string
+  selectedResultName?: string
+}
+
+export type PresenceLoadState = 'loading' | 'ready' | 'error'
+
 export type PresenceState = {
   currentBuilding: PresenceBuilding | null
   currentFloor: PresenceFloor | null
@@ -82,6 +91,8 @@ export type PresenceState = {
   currentUserLocation: PresenceUserLocation
   currentFocus: PresenceFocus
   currentRoute: PresenceRoute
+  currentSearch: PresenceSearch
+  currentLoadState: PresenceLoadState
 }
 
 export type PresenceListener = (state: PresenceState) => void
@@ -95,6 +106,8 @@ export type PresenceActions = {
   setCurrentUserLocation(userLocation: PresenceUserLocation): void
   setCurrentFocus(focus: PresenceFocus): void
   setCurrentRoute(route: PresenceRoute): void
+  setCurrentSearch(search: PresenceSearch): void
+  setCurrentLoadState(loadState: PresenceLoadState): void
   reset(): void
 }
 
@@ -108,6 +121,8 @@ export type PresenceSelectors = {
   getCurrentUserLocation(): PresenceUserLocation
   getCurrentFocus(): PresenceFocus
   getCurrentRoute(): PresenceRoute
+  getCurrentSearch(): PresenceSearch
+  getCurrentLoadState(): PresenceLoadState
   subscribe(listener: PresenceListener): () => void
 }
 
@@ -120,6 +135,11 @@ const initialPresenceState: PresenceState = {
   currentUserLocation: { status: 'off' },
   currentFocus: { type: 'none' },
   currentRoute: { status: 'idle' },
+  currentSearch: {
+    query: '',
+    resultCount: 0,
+  },
+  currentLoadState: 'loading',
 }
 
 function createInitialState(overrides: Partial<PresenceState> = {}): PresenceState {
@@ -148,6 +168,8 @@ export class PresenceSubsystem {
       getCurrentUserLocation: () => this.state.currentUserLocation,
       getCurrentFocus: () => this.state.currentFocus,
       getCurrentRoute: () => this.state.currentRoute,
+      getCurrentSearch: () => this.state.currentSearch,
+      getCurrentLoadState: () => this.state.currentLoadState,
       subscribe: (listener) => this.subscribe(listener),
     }
   }
@@ -164,6 +186,9 @@ export class PresenceSubsystem {
         this.setState({ currentUserLocation: userLocation }),
       setCurrentFocus: (focus) => this.setState({ currentFocus: focus }),
       setCurrentRoute: (route) => this.setState({ currentRoute: route }),
+      setCurrentSearch: (search) => this.setState({ currentSearch: search }),
+      setCurrentLoadState: (loadState) =>
+        this.setState({ currentLoadState: loadState }),
       reset: () => this.reset(),
     }
   }

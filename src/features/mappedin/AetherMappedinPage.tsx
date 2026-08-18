@@ -57,6 +57,11 @@ function AetherMappedinPage() {
     worldSelectors.getState(),
   )
 
+  const setAetherLoadState = useCallback((nextLoadState: AetherShellState) => {
+    setLoadState(nextLoadState)
+    presenceActions.setCurrentLoadState(nextLoadState)
+  }, [])
+
   const clearSelectedSpaceHighlight = useCallback(() => {
     const mapView = mapViewRef.current
     const selectedSpace = selectedSpaceRef.current
@@ -108,7 +113,7 @@ function AetherMappedinPage() {
     const mapElement = mapElementRef.current
     if (!mapElement) return undefined
 
-    setLoadState('loading')
+    setAetherLoadState('loading')
     setErrorMessage('')
 
     if (wakeTimerRef.current) {
@@ -129,12 +134,20 @@ function AetherMappedinPage() {
       externalId: token.mapId,
       name: 'Mappedin Venue',
     })
-    worldActions.setBuilding({
+    const building = {
       type: 'building',
       worldId: `building:${token.mapId}`,
       venueId: `venue:${token.mapId}`,
       externalId: token.mapId,
       name: 'Aether Building',
+    } as const
+    worldActions.setBuilding(building)
+    presenceActions.setCurrentBuilding({
+      id: building.externalId,
+      worldId: building.worldId,
+      type: 'building',
+      name: building.name,
+      externalId: building.externalId,
     })
 
     presenceActions.setCurrentFloor({
@@ -165,7 +178,7 @@ function AetherMappedinPage() {
       applyZoom: true,
     })
 
-    setLoadState('ready')
+    setAetherLoadState('ready')
 
     wakeTimerRef.current = window.setTimeout(() => {
       cameraController.flyToFloor(mapView.currentFloor, {
@@ -181,7 +194,7 @@ function AetherMappedinPage() {
     }, 180)
 
     return mapView
-  }, [])
+  }, [setAetherLoadState])
 
   useEffect(() => {
     return presenceSelectors.subscribe(setPresenceState)
@@ -359,7 +372,7 @@ function AetherMappedinPage() {
         setErrorMessage(
           error instanceof Error ? error.message : 'The map failed to load.',
         )
-        setLoadState('error')
+        setAetherLoadState('error')
       })
 
     return () => {
@@ -378,7 +391,7 @@ function AetherMappedinPage() {
       mapViewRef.current = null
       activeMapView?.destroy()
     }
-  }, [clearSelectedSpaceHighlight, loadMap, reloadKey])
+  }, [clearSelectedSpaceHighlight, loadMap, reloadKey, setAetherLoadState])
 
   const selectedSpace =
     presenceState.currentSelection.type === 'space' &&
@@ -400,6 +413,53 @@ function AetherMappedinPage() {
       ? presenceState.currentFocus.type
       : presenceState.currentFocus.label) ??
     presenceState.currentFocus.type
+  const currentBuildingName =
+    presenceState.currentBuilding?.name ??
+    worldState.building?.name ??
+    worldState.venue?.name ??
+    ''
+  const currentFloorName =
+    presenceState.currentFloor?.name ?? currentFloor?.name ?? ''
+  const selectedSpaceName =
+    selectedSpace?.name ??
+    (presenceState.currentSelection.type === 'space'
+      ? presenceState.currentSelection.name
+      : '') ??
+    ''
+  const cameraBearing =
+    presenceState.currentCamera === null
+      ? ''
+      : `${Math.round(presenceState.currentCamera.bearing)}°`
+  const cameraPitch =
+    presenceState.currentCamera === null
+      ? ''
+      : `${Math.round(presenceState.currentCamera.pitch)}°`
+  const cameraZoom =
+    presenceState.currentCamera === null
+      ? ''
+      : presenceState.currentCamera.zoom.toFixed(1)
+  const currentSearchText =
+    presenceState.currentSearch.selectedResultName ??
+    presenceState.currentSearch.query
+  const currentSearch =
+    currentSearchText
+      ? [
+          currentSearchText,
+          `${presenceState.currentSearch.resultCount}`,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : `${presenceState.currentSearch.resultCount}`
+  const missionControlRows = [
+    ['Current Building', currentBuildingName],
+    ['Current Floor', currentFloorName],
+    ['Selected Space', selectedSpaceName],
+    ['Camera Bearing', cameraBearing],
+    ['Camera Pitch', cameraPitch],
+    ['Camera Zoom', cameraZoom],
+    ['Current Search', currentSearch],
+    ['Loading State', presenceState.currentLoadState],
+  ]
 
   return (
     <AetherShell
@@ -529,26 +589,21 @@ function AetherMappedinPage() {
               Mission Control
             </p>
             <p className="mt-2 text-lg font-semibold text-white">
-              {currentSelectionLabel ?? 'Building Context'}
+              {currentSelectionLabel ?? currentBuildingName}
             </p>
           </div>
           <div className="grid gap-2 text-xs text-slate-400">
-            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.05]">
-              <span>World</span>
-              <span className="text-slate-300">{worldState.spaces.length} spaces</span>
-            </div>
-            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.05]">
-              <span>Presence</span>
-              <span className="truncate pl-3 text-right text-slate-300">
-                {currentFocusLabel}
-              </span>
-            </div>
-            <div className="flex justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.05]">
-              <span>Floor</span>
-              <span className="truncate pl-3 text-right text-slate-300">
-                {selectedSpace?.floorName ?? currentFloor?.name ?? 'Ready'}
-              </span>
-            </div>
+            {missionControlRows.map(([label, value]) => (
+              <div
+                key={label}
+                className="flex justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.05]"
+              >
+                <span>{label}</span>
+                <span className="truncate text-right text-slate-300">
+                  {value}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       }
