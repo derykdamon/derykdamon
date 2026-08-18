@@ -17,9 +17,9 @@ export type AetherShellProps = {
 
 function AetherGlassPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-cyan-100/[0.055] bg-[#071018]/42 ring-1 ring-white/[0.025] backdrop-blur-[36px] transition duration-500 ease-out hover:border-cyan-100/12 hover:bg-[#071018]/56">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/24 to-transparent opacity-40 transition-opacity duration-500 group-hover:opacity-70" />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.045),transparent_32%,transparent_74%,rgba(34,211,238,0.025))] opacity-45 transition-opacity duration-500 group-hover:opacity-65" />
+    <div className="group relative overflow-hidden rounded-2xl border border-cyan-100/[0.035] bg-[#071018]/28 ring-1 ring-white/[0.015] backdrop-blur-[44px] transition duration-500 ease-out hover:border-cyan-100/[0.085] hover:bg-[#071018]/46">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/18 to-transparent opacity-28 transition-opacity duration-500 group-hover:opacity-56" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.03),transparent_32%,transparent_74%,rgba(34,211,238,0.016))] opacity-32 transition-opacity duration-500 group-hover:opacity-52" />
       <div className="relative">{children}</div>
     </div>
   )
@@ -42,7 +42,7 @@ function AetherShell({
   return (
     <div className="relative h-[100dvh] overflow-hidden bg-[#03070c] text-slate-100">
       <div
-        className={`absolute inset-0 bg-[#03070c] contrast-[1.12] saturate-[1.12] brightness-[1.04] transition-[opacity,filter,transform] duration-[1600ms] ease-out ${
+        className={`absolute inset-0 bg-[#03070c] contrast-[1.2] saturate-[1.08] brightness-[1.06] transition-[opacity,filter,transform] duration-[1600ms] ease-out ${
           mapReady
             ? 'opacity-100 blur-0 animate-[aether-map-breathe_9s_ease-in-out_1.5s_infinite]'
             : 'opacity-0 blur-sm'
@@ -57,14 +57,14 @@ function AetherShell({
         <div className="pointer-events-none absolute inset-0 z-10 animate-[aether-world-reveal_1800ms_ease-out_both] bg-[#03070c]" />
       )}
       <div
-        className={`pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(34,211,238,0.08),transparent_24%),radial-gradient(circle_at_82%_14%,rgba(59,130,246,0.06),transparent_26%),radial-gradient(circle_at_50%_100%,rgba(20,184,166,0.045),transparent_30%)] mix-blend-screen transition-opacity duration-[1800ms] ${
+        className={`pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(34,211,238,0.05),transparent_24%),radial-gradient(circle_at_82%_14%,rgba(59,130,246,0.04),transparent_26%),radial-gradient(circle_at_50%_100%,rgba(20,184,166,0.03),transparent_30%)] mix-blend-screen transition-opacity duration-[1800ms] ${
           mapReady
-            ? 'animate-[aether-light-breathe_8s_ease-in-out_1.2s_infinite] opacity-45'
+            ? 'animate-[aether-light-breathe_8s_ease-in-out_1.2s_infinite] opacity-30'
             : 'opacity-0'
         }`}
       />
       <div
-        className={`pointer-events-none absolute inset-0 shadow-[inset_0_0_72px_rgba(0,0,0,0.36)] transition-opacity duration-[1800ms] ${
+        className={`pointer-events-none absolute inset-0 shadow-[inset_0_0_54px_rgba(0,0,0,0.28)] transition-opacity duration-[1800ms] ${
           mapReady ? 'opacity-100' : 'opacity-0'
         }`}
       />
@@ -74,7 +74,7 @@ function AetherShell({
       )}
 
       {(topBar || topOmnibox) && (
-        <header className="absolute inset-x-4 top-4 z-40 animate-[aether-panel-in_700ms_ease-out_both] md:inset-x-8 md:top-7">
+        <header className="absolute inset-x-4 top-4 z-40 animate-[aether-panel-in_700ms_ease-out_both] opacity-80 transition-opacity duration-500 hover:opacity-100 md:inset-x-8 md:top-7">
           <div className="grid gap-4 lg:grid-cols-[minmax(14rem,0.68fr)_minmax(24rem,1.32fr)]">
             {topBar && <AetherGlassPanel>{topBar}</AetherGlassPanel>}
             {topOmnibox && <AetherGlassPanel>{topOmnibox}</AetherGlassPanel>}
@@ -83,7 +83,7 @@ function AetherShell({
       )}
 
       {(leftRail || search || navigation) && (
-        <aside className="absolute bottom-32 left-5 top-40 z-30 hidden w-[min(20rem,calc(100%-2rem))] animate-[aether-panel-left_820ms_ease-out_120ms_both] flex-col gap-4 opacity-70 transition-opacity duration-500 hover:opacity-95 md:flex lg:left-8 lg:top-36">
+        <aside className="absolute bottom-32 left-5 top-40 z-30 hidden w-[min(20rem,calc(100%-2rem))] animate-[aether-panel-left_820ms_ease-out_120ms_both] flex-col gap-5 opacity-[0.55] transition-opacity duration-500 hover:opacity-[0.92] md:flex lg:left-8 lg:top-36">
           {leftRail && <AetherGlassPanel>{leftRail}</AetherGlassPanel>}
           {search && <AetherGlassPanel>{search}</AetherGlassPanel>}
           {navigation && <AetherGlassPanel>{navigation}</AetherGlassPanel>}
@@ -91,7 +91,7 @@ function AetherShell({
       )}
 
       {(rightMissionControl || selection) && (
-        <aside className="absolute bottom-32 right-5 top-40 z-30 hidden w-[min(23rem,calc(100%-2rem))] animate-[aether-panel-right_820ms_ease-out_180ms_both] flex-col gap-4 opacity-[0.82] transition-opacity duration-500 hover:opacity-100 lg:right-8 lg:flex lg:top-36">
+        <aside className="absolute bottom-32 right-5 top-40 z-30 hidden w-[min(23rem,calc(100%-2rem))] animate-[aether-panel-right_820ms_ease-out_180ms_both] flex-col gap-5 opacity-[0.65] transition-opacity duration-500 hover:opacity-95 lg:right-8 lg:flex lg:top-36">
           {rightMissionControl && (
             <AetherGlassPanel>{rightMissionControl}</AetherGlassPanel>
           )}
@@ -100,7 +100,7 @@ function AetherShell({
       )}
 
       {bottomStatusBar && (
-        <footer className="absolute inset-x-4 bottom-4 z-40 animate-[aether-panel-up_760ms_ease-out_240ms_both] opacity-80 transition-opacity duration-500 hover:opacity-100 md:inset-x-8 md:bottom-7">
+        <footer className="absolute inset-x-4 bottom-4 z-40 animate-[aether-panel-up_760ms_ease-out_240ms_both] opacity-[0.68] transition-opacity duration-500 hover:opacity-95 md:inset-x-8 md:bottom-7">
           <AetherGlassPanel>{bottomStatusBar}</AetherGlassPanel>
         </footer>
       )}
@@ -155,12 +155,12 @@ function AetherShell({
           100% { opacity: 0; filter: blur(0); }
         }
         @keyframes aether-map-breathe {
-          0%, 100% { transform: scale(1); filter: contrast(1.12) saturate(1.12) brightness(1.04); }
-          50% { transform: scale(1.006); filter: contrast(1.16) saturate(1.16) brightness(1.07); }
+          0%, 100% { transform: scale(1); filter: contrast(1.2) saturate(1.08) brightness(1.06); }
+          50% { transform: scale(1.005); filter: contrast(1.24) saturate(1.12) brightness(1.08); }
         }
         @keyframes aether-light-breathe {
-          0%, 100% { opacity: 0.34; }
-          50% { opacity: 0.52; }
+          0%, 100% { opacity: 0.24; }
+          50% { opacity: 0.38; }
         }
         .aether-blue-dot {
           position: relative;

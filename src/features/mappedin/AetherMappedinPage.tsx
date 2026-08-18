@@ -1,4 +1,8 @@
 import {
+  WALLS,
+  type Floor,
+} from '@mappedin/mappedin-js'
+import {
   AlertTriangle,
   Activity,
   Building2,
@@ -61,6 +65,95 @@ import type {
 } from './types/mappedinTypes'
 
 type AetherShellState = LoadState
+type LabelDensity = 'major' | 'room' | 'detail'
+
+const AETHER_SPACE_COLOR = '#d8e5ea'
+const AETHER_SPACE_HOVER_COLOR = '#7dd3fc'
+const AETHER_SELECTED_SPACE_COLOR = '#0891b2'
+const AETHER_SELECTED_SPACE_HOVER_COLOR = '#a5f3fc'
+
+const MAJOR_DESTINATION_PATTERN =
+  /lobby|reception|entrance|atrium|conference|auditorium|cafe|cafeteria|dining|elevator|stairs|restroom|information|security|clinic|lab|training|library|lounge/i
+
+function labelDensityForZoom(zoom: number): LabelDensity {
+  if (zoom >= 17.2) return 'detail'
+  if (zoom >= 15.45) return 'room'
+  return 'major'
+}
+
+function labelLimitForDensity(density: LabelDensity) {
+  if (density === 'detail') return 600
+  if (density === 'room') return 120
+  return 36
+}
+
+function selectLabelSpaces(spaces: WorldSpace[], density: LabelDensity) {
+  const limit = labelLimitForDensity(density)
+
+  if (density === 'major') {
+    const majorSpaces = spaces.filter((space) =>
+      MAJOR_DESTINATION_PATTERN.test(space.name),
+    )
+
+    return (majorSpaces.length ? majorSpaces : spaces).slice(0, limit)
+  }
+
+  return spaces.slice(0, limit)
+}
+
+function applyWorldSurfacePresentation(
+  mapView: MapView,
+  floors: Floor[],
+  spaces: WorldSpace[],
+) {
+  try {
+    mapView.updateState(WALLS.Interior, {
+      color: '#141f29',
+      topColor: '#1d2b36',
+      opacity: 0.96,
+    })
+    mapView.updateState(WALLS.Exterior, {
+      color: '#0c141d',
+      topColor: '#162532',
+      opacity: 0.98,
+    })
+  } catch (error) {
+    console.warn('Aether wall presentation skipped:', error)
+  }
+
+  floors.forEach((floor) => {
+    try {
+      mapView.updateState(floor, {
+        geometry: {
+          opacity: 1,
+          darkenAmount: 0.04,
+          desaturateAmount: 0.04,
+          washOutAmount: 0,
+        },
+        footprint: {
+          color: '#c8d8df',
+          opacity: 0.94,
+          outline: true,
+        },
+      })
+    } catch (error) {
+      console.warn('Aether floor presentation skipped:', error)
+    }
+  })
+
+  spaces.forEach((space) => {
+    try {
+      mapView.updateState(space.raw, {
+        color: AETHER_SPACE_COLOR,
+        opacity: 0.98,
+        interactive: true,
+        hoverColor: AETHER_SPACE_HOVER_COLOR,
+      })
+    } catch (error) {
+      console.warn('Aether space presentation skipped:', error)
+    }
+  })
+}
 
 function waitForFirstMapRender(mapView: MapView) {
   return new Promise<void>((resolve) => {
@@ -86,6 +179,8 @@ function AetherMappedinPage() {
   const cameraControllerRef = useRef<CameraController | null>(null)
   const wakeTimerRef = useRef<number | null>(null)
   const labelRevealTimerRef = useRef<number | null>(null)
+  const labelDensityRef = useRef<LabelDensity | null>(null)
+  const labelsVisibleRef = useRef(true)
   const selectionMoveTimerRef = useRef<number | null>(null)
   const selectedSpaceRef = useRef<WorldSpace | null>(null)
   const handledSelectionRef = useRef<string | null>(null)
@@ -121,8 +216,8 @@ function AetherMappedinPage() {
     if (!mapView || !selectedSpace) return
 
     mapView.updateState(selectedSpace.raw, {
-      color: 'initial',
-      hoverColor: '#7dd3fc',
+      color: AETHER_SPACE_COLOR,
+      hoverColor: AETHER_SPACE_HOVER_COLOR,
       interactive: true,
     })
     selectedSpaceRef.current = null
@@ -135,8 +230,8 @@ function AetherMappedinPage() {
 
       clearSelectedSpaceHighlight()
       mapView.updateState(space.raw, {
-        color: '#0891b2',
-        hoverColor: '#a5f3fc',
+        color: AETHER_SELECTED_SPACE_COLOR,
+        hoverColor: AETHER_SELECTED_SPACE_HOVER_COLOR,
         interactive: true,
       })
       selectedSpaceRef.current = space
@@ -210,30 +305,37 @@ function AetherMappedinPage() {
     floorName: space.floorName,
   }), [])
 
-  const addWorldLabels = useCallback(async () => {
+  const addWorldLabels = useCallback(async (zoom?: number) => {
     const mapView = mapViewRef.current
     if (!mapView) return
 
+    const density = labelDensityForZoom(
+      zoom ?? presenceSelectors.getCurrentCamera()?.zoom ?? 14.2,
+    )
+    const labelSpaces = selectLabelSpaces(worldSelectors.getSpaces(), density)
+
     mapView.Labels.removeAll()
     const results = await Promise.allSettled(
-      worldSelectors.getSpaces().slice(0, 600).map((space) =>
+      labelSpaces.map((space) =>
         mapView.Labels.add(space.raw, space.name, {
           interactive: true,
           enabled: true,
-          rank: 'always-visible',
+          rank: density === 'detail' ? 'always-visible' : 'high',
           appearance: {
             margin: 8,
             maxLines: 2,
             maxWidth: 180,
-            textSize: 12,
-            textColor: '#101827',
-            textOutlineColor: '#ffffff',
+            textSize: density === 'major' ? 13 : 12,
+            textColor: '#172332',
+            textOutlineColor: 'rgba(255,255,255,0.88)',
             pinColor: '#0f172a',
-            pinOutlineColor: '#ffffff',
+            pinOutlineColor: 'rgba(255,255,255,0.82)',
           },
         }),
       ),
     )
+
+    labelDensityRef.current = density
 
     const failedLabel = results.find((result) => result.status === 'rejected')
     if (failedLabel?.status === 'rejected') {
@@ -556,12 +658,14 @@ function AetherMappedinPage() {
 
     if (labelsVisible) {
       mapView.Labels.removeAll()
+      labelsVisibleRef.current = false
       setLabelsVisible(false)
       return
     }
 
     try {
-      await addWorldLabels()
+      await addWorldLabels(presenceSelectors.getCurrentCamera()?.zoom)
+      labelsVisibleRef.current = true
       setLabelsVisible(true)
     } catch (error) {
       console.warn('Aether labels are waiting for the map renderer:', error)
@@ -621,20 +725,30 @@ function AetherMappedinPage() {
       elevation: Number(mapView.currentFloor.elevation ?? 0),
     })
 
-    enableSpaceInteractivity(mapView, worldSelectors.getSpaces(), '#7dd3fc')
+    const worldSpaces = worldSelectors.getSpaces()
+    enableSpaceInteractivity(mapView, worldSpaces, AETHER_SPACE_HOVER_COLOR)
+    applyWorldSurfacePresentation(
+      mapView,
+      mapData.getByType('floor') as Floor[],
+      worldSpaces,
+    )
     setLabelsVisible(false)
+    labelsVisibleRef.current = false
+    labelDensityRef.current = null
 
     const cameraController = createCameraController(mapView, {
-      initialPitch: 0,
-      initialZoom: 13.2,
-      initialPreset: 'top',
+      initialBearing: -24,
+      initialPitch: 54,
+      initialZoom: 13.1,
+      initialPreset: 'perspective',
     })
     cameraControllerRef.current = cameraController
     await waitForFirstMapRender(mapView)
     cameraController.reset(mapView.currentFloor, {
-      pitch: 0,
-      zoom: 13.2,
-      preset: 'top',
+      bearing: -24,
+      pitch: 54,
+      zoom: 13.1,
+      preset: 'perspective',
       applyZoom: true,
     })
 
@@ -643,27 +757,29 @@ function AetherMappedinPage() {
     wakeTimerRef.current = window.setTimeout(() => {
       cameraController.flyToFloor(mapView.currentFloor, {
         bearing: 18,
-        pitch: 48,
-        zoom: 14.2,
+        pitch: 56,
+        zoom: 15,
         preset: 'campus',
         applyZoom: true,
         animate: true,
-        duration: 1400,
+        duration: 1900,
         easing: 'ease-in-out',
       })
-    }, 420)
+    }, 2200)
 
     labelRevealTimerRef.current = window.setTimeout(() => {
-      void addWorldLabels()
+      void addWorldLabels(cameraController.getState().zoom)
         .then(() => {
+          labelsVisibleRef.current = true
           setLabelsVisible(true)
           labelRevealTimerRef.current = null
         })
         .catch((error) => {
           console.warn('Aether labels are waiting for the map renderer:', error)
           labelRevealTimerRef.current = window.setTimeout(() => {
-            void addWorldLabels()
+            void addWorldLabels(cameraController.getState().zoom)
               .then(() => {
+                labelsVisibleRef.current = true
                 setLabelsVisible(true)
                 labelRevealTimerRef.current = null
               })
@@ -672,7 +788,7 @@ function AetherMappedinPage() {
               })
           }, 900)
         })
-    }, 1200)
+    }, 3000)
 
     mapView.on('floor-change', (event) => {
       presenceActions.setCurrentFloor({
@@ -686,6 +802,17 @@ function AetherMappedinPage() {
 
     mapView.on('camera-change', (transform) => {
       cameraController.syncFromCameraChange(transform)
+
+      if (!labelsVisibleRef.current) return
+
+      const currentZoom = cameraController.getState().zoom
+      const nextDensity = labelDensityForZoom(currentZoom)
+      if (labelDensityRef.current === nextDensity) return
+
+      labelDensityRef.current = nextDensity
+      void addWorldLabels(currentZoom).catch((error) => {
+        console.warn('Aether labels are waiting for the map renderer:', error)
+      })
     })
 
     mapView.on('click', (event) => {

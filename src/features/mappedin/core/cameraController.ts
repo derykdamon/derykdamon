@@ -30,6 +30,7 @@ type CameraTransform = {
   bearing?: number
   pitch?: number
   zoom?: number
+  zoomLevel?: number
 }
 
 type CameraActionOptions = CameraTransform & {
@@ -48,6 +49,7 @@ type CameraSetOptions = {
 }
 
 type CameraFocusTarget = Parameters<MapView['Camera']['focusOn']>[0]
+type CameraFocusOptions = Parameters<MapView['Camera']['focusOn']>[1]
 type CameraPresenceActions = Pick<PresenceActions, 'setCurrentCamera'>
 
 type CameraControllerOptions = {
@@ -78,9 +80,17 @@ function modeFromPitch(pitch: number): CameraMode {
   return pitch === 0 ? 'top' : 'perspective'
 }
 
+function toMappedinCameraTarget(transform: CameraTransform) {
+  return {
+    bearing: transform.bearing,
+    pitch: transform.pitch,
+    zoomLevel: transform.zoom ?? transform.zoomLevel,
+  }
+}
+
 function setCameraTransform(mapView: MapView, transform: CameraTransform) {
   try {
-    ;(mapView.Camera.set as (nextTransform: CameraTransform) => void)(transform)
+    mapView.Camera.set(toMappedinCameraTarget(transform))
   } catch (error) {
     console.warn('Aether camera transform skipped until map is ready:', error)
   }
@@ -92,14 +102,11 @@ function animateCameraTransform(
   duration?: number,
   easing?: CameraSetOptions['easing'],
 ) {
-  const animateTo = mapView.Camera.animateTo as (
-    nextTransform: CameraTransform,
-    options?: { duration?: number; easing?: CameraSetOptions['easing'] },
-  ) => Promise<void>
+  const animateTo = mapView.Camera.animateTo
 
   try {
     void animateTo(
-      transform,
+      toMappedinCameraTarget(transform),
       duration === undefined && easing === undefined
         ? undefined
         : { duration, easing },
@@ -111,9 +118,15 @@ function animateCameraTransform(
   }
 }
 
-function focusCameraTarget(mapView: MapView, target: CameraFocusTarget) {
+function focusCameraTarget(
+  mapView: MapView,
+  target: CameraFocusTarget,
+  options?: CameraFocusOptions,
+) {
   try {
-    mapView.Camera.focusOn(target)
+    void mapView.Camera.focusOn(target, options).catch((error) => {
+      console.warn('Aether camera focus skipped until map is ready:', error)
+    })
     return true
   } catch (error) {
     console.warn('Aether camera focus skipped until map is ready:', error)
@@ -177,6 +190,8 @@ export class CameraController {
   }
 
   syncFromCameraChange(transform: CameraTransform) {
+    const transformZoom = transform.zoom ?? transform.zoomLevel
+
     this.setState({
       bearing:
         typeof transform.bearing === 'number'
@@ -187,8 +202,8 @@ export class CameraController {
           ? clamp(Math.round(transform.pitch), this.minPitch, this.maxPitch)
           : this.state.pitch,
       zoom:
-        typeof transform.zoom === 'number'
-          ? clamp(Number(transform.zoom.toFixed(1)), this.minZoom, this.maxZoom)
+        typeof transformZoom === 'number'
+          ? clamp(Number(transformZoom.toFixed(1)), this.minZoom, this.maxZoom)
           : this.state.zoom,
       mode:
         typeof transform.pitch === 'number'
@@ -198,62 +213,77 @@ export class CameraController {
   }
 
   flyToRoom(target: CameraFocusTarget, options: CameraActionOptions = {}) {
-    if (!focusCameraTarget(this.mapView, target)) return
-    if (!hasCameraTransform(options)) return
+    const nextBearing = options.bearing ?? this.state.bearing
+    const nextPitch = options.pitch ?? this.state.pitch
+    const nextZoom = options.zoom ?? this.state.zoom
 
-    this.setView(
-      {
-        bearing: options.bearing ?? this.state.bearing,
-        pitch: options.pitch ?? this.state.pitch,
-        zoom: options.zoom,
+    if (!focusCameraTarget(this.mapView, target, {
+      bearing: nextBearing,
+      pitch: nextPitch,
+      minZoomLevel: options.applyZoom ? nextZoom : undefined,
+      maxZoomLevel: options.applyZoom ? nextZoom : undefined,
+      duration: options.duration,
+      easing: options.easing,
+    })) return
+
+    if (hasCameraTransform(options)) {
+      this.setState({
+        bearing: normalizeBearing(nextBearing),
+        pitch: clamp(nextPitch, this.minPitch, this.maxPitch),
+        zoom: clamp(nextZoom, this.minZoom, this.maxZoom),
+        mode: modeFromPitch(clamp(nextPitch, this.minPitch, this.maxPitch)),
         preset: options.preset ?? 'room',
-      },
-      {
-        animate: options.animate,
-        applyZoom: options.applyZoom,
-        duration: options.duration,
-        easing: options.easing,
-      },
-    )
+      })
+    }
   }
 
   flyToFloor(target: CameraFocusTarget, options: CameraActionOptions = {}) {
-    if (!focusCameraTarget(this.mapView, target)) return
-    if (!hasCameraTransform(options)) return
+    const nextBearing = options.bearing ?? this.state.bearing
+    const nextPitch = options.pitch ?? this.state.pitch
+    const nextZoom = options.zoom ?? this.state.zoom
 
-    this.setView(
-      {
-        bearing: options.bearing ?? this.state.bearing,
-        pitch: options.pitch ?? this.state.pitch,
-        zoom: options.zoom,
+    if (!focusCameraTarget(this.mapView, target, {
+      bearing: nextBearing,
+      pitch: nextPitch,
+      minZoomLevel: options.applyZoom ? nextZoom : undefined,
+      maxZoomLevel: options.applyZoom ? nextZoom : undefined,
+      duration: options.duration,
+      easing: options.easing,
+    })) return
+
+    if (hasCameraTransform(options)) {
+      this.setState({
+        bearing: normalizeBearing(nextBearing),
+        pitch: clamp(nextPitch, this.minPitch, this.maxPitch),
+        zoom: clamp(nextZoom, this.minZoom, this.maxZoom),
+        mode: modeFromPitch(clamp(nextPitch, this.minPitch, this.maxPitch)),
         preset: options.preset ?? 'floor',
-      },
-      {
-        animate: options.animate,
-        applyZoom: options.applyZoom,
-        duration: options.duration,
-        easing: options.easing,
-      },
-    )
+      })
+    }
   }
 
   reset(target: CameraFocusTarget, options: CameraActionOptions = {}) {
     this.stopOrbit()
-    if (!focusCameraTarget(this.mapView, target)) return
-    this.setView(
-      {
-        bearing: options.bearing ?? 0,
-        pitch: options.pitch ?? 55,
-        zoom: options.zoom,
-        preset: options.preset ?? (options.zoom === undefined ? 'perspective' : 'campus'),
-      },
-      {
-        animate: options.animate,
-        applyZoom: options.applyZoom,
-        duration: options.duration,
-        easing: options.easing,
-      },
-    )
+    const nextBearing = options.bearing ?? 0
+    const nextPitch = options.pitch ?? 55
+    const nextZoom = options.zoom ?? this.state.zoom
+
+    if (!focusCameraTarget(this.mapView, target, {
+      bearing: nextBearing,
+      pitch: nextPitch,
+      minZoomLevel: options.applyZoom ? nextZoom : undefined,
+      maxZoomLevel: options.applyZoom ? nextZoom : undefined,
+      duration: options.duration,
+      easing: options.easing,
+    })) return
+
+    this.setState({
+      bearing: normalizeBearing(nextBearing),
+      pitch: clamp(nextPitch, this.minPitch, this.maxPitch),
+      zoom: clamp(nextZoom, this.minZoom, this.maxZoom),
+      mode: modeFromPitch(clamp(nextPitch, this.minPitch, this.maxPitch)),
+      preset: options.preset ?? (options.zoom === undefined ? 'perspective' : 'campus'),
+    })
   }
 
   topView() {
