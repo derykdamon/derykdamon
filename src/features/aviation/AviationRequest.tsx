@@ -36,6 +36,7 @@ export default function AviationRequest() {
   const heading = useRef<HTMLHeadingElement>(null)
   const message = useRef<HTMLDivElement>(null)
   const selected = services[service]
+  const pendingSubmission = uncertain || Boolean(previous && !previous.reference)
   useEffect(() => { document.title = 'Plan an inquiry · HRL Aviation'; heading.current?.focus() }, [step, service, receipt])
   useEffect(() => { if (Object.keys(errors).length) message.current?.focus() }, [errors])
   const payload = () => ({ ...contact, service, details: details[service] })
@@ -90,6 +91,6 @@ export default function AviationRequest() {
     </fieldset>
     {uncertain && <p className="av-notice">Editing is paused because a previous attempt may have reached the server. Retry this same request to recover its reference.</p>}
     <div className="av-form-actions">{step !== 'details' && <button className="av-text-link" type="button" disabled={busy || uncertain} onClick={() => go(step === 'review' ? 'contact' : 'details')}><ArrowLeft size={16} /> Back</button>}<button className="av-button av-button-dark" disabled={busy} type="submit">{busy ? 'Saving your inquiry…' : uncertain ? 'Retry same request' : step === 'review' ? 'Save my inquiry' : 'Continue'}{!busy && <ArrowRight size={17} />}</button></div>
-    </form><button className="av-cancel" type="button" disabled={busy} onClick={() => setCancel(true)}>Cancel this inquiry</button>{cancel && <div className="av-cancel-confirm" role="alert"><p>{uncertain ? 'A previous submission may already have been saved. Leaving will not cancel a saved inquiry.' : 'Discard this unsent inquiry? Your entered details will be cleared.'}</p><Link className="av-text-link" to="/aviation">{uncertain ? 'Leave without a reference' : 'Discard and leave'}</Link><button type="button" className="av-text-link" onClick={() => setCancel(false)}>Keep working</button></div>}</section></div>}
+    </form><button className="av-cancel" type="button" disabled={busy} onClick={() => setCancel(true)}>Cancel this inquiry</button>{cancel && <div className="av-cancel-confirm" role="alert"><p>{pendingSubmission ? 'A previous submission may already have been saved. Leaving will not cancel a saved inquiry.' : 'Discard this unsent inquiry? Your entered details will be cleared.'}</p><Link className="av-text-link" to="/aviation">{pendingSubmission ? 'Leave without a reference' : 'Discard and leave'}</Link><button type="button" className="av-text-link" onClick={() => setCancel(false)}>Keep working</button></div>}</section></div>}
   </div></div>
 }
