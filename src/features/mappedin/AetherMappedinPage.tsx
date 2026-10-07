@@ -1,14 +1,28 @@
 import {
+  WALLS,
+  type Floor,
+} from '@mappedin/mappedin-js'
+import {
   AlertTriangle,
   Activity,
+  Building2,
   Compass,
   Database,
+  Eye,
+  EyeOff,
+  Flag,
   LoaderCircle,
   LocateFixed,
   MapPin,
+  Minus,
   Navigation,
+  Play,
+  Plus,
   RotateCcw,
+  RotateCw,
+  Route as RouteIcon,
   Search,
+  Target,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AetherShell from './components/AetherShell'
@@ -29,6 +43,7 @@ import {
   presenceSelectors,
   type PresenceState,
 } from './core/presenceSubsystem'
+import { enableSpaceInteractivity } from './core/spaces'
 import {
   searchActions,
   searchSelectors,
@@ -50,12 +65,122 @@ import type {
 } from './types/mappedinTypes'
 
 type AetherShellState = LoadState
+type LabelDensity = 'major' | 'room' | 'detail'
+
+const AETHER_SPACE_COLOR = '#d8e5ea'
+const AETHER_SPACE_HOVER_COLOR = '#7dd3fc'
+const AETHER_SELECTED_SPACE_COLOR = '#0891b2'
+const AETHER_SELECTED_SPACE_HOVER_COLOR = '#a5f3fc'
+
+const MAJOR_DESTINATION_PATTERN =
+  /lobby|reception|entrance|atrium|conference|auditorium|cafe|cafeteria|dining|elevator|stairs|restroom|information|security|clinic|lab|training|library|lounge/i
+
+function labelDensityForZoom(zoom: number): LabelDensity {
+  if (zoom >= 17.2) return 'detail'
+  if (zoom >= 15.45) return 'room'
+  return 'major'
+}
+
+function labelLimitForDensity(density: LabelDensity) {
+  if (density === 'detail') return 600
+  if (density === 'room') return 120
+  return 36
+}
+
+function selectLabelSpaces(spaces: WorldSpace[], density: LabelDensity) {
+  const limit = labelLimitForDensity(density)
+
+  if (density === 'major') {
+    const majorSpaces = spaces.filter((space) =>
+      MAJOR_DESTINATION_PATTERN.test(space.name),
+    )
+
+    return (majorSpaces.length ? majorSpaces : spaces).slice(0, limit)
+  }
+
+  return spaces.slice(0, limit)
+}
+
+function applyWorldSurfacePresentation(
+  mapView: MapView,
+  floors: Floor[],
+  spaces: WorldSpace[],
+) {
+  try {
+    mapView.updateState(WALLS.Interior, {
+      color: '#141f29',
+      topColor: '#1d2b36',
+      opacity: 0.96,
+    })
+    mapView.updateState(WALLS.Exterior, {
+      color: '#0c141d',
+      topColor: '#162532',
+      opacity: 0.98,
+    })
+  } catch (error) {
+    console.warn('Aether wall presentation skipped:', error)
+  }
+
+  floors.forEach((floor) => {
+    try {
+      mapView.updateState(floor, {
+        geometry: {
+          opacity: 1,
+          darkenAmount: 0.04,
+          desaturateAmount: 0.04,
+          washOutAmount: 0,
+        },
+        footprint: {
+          color: '#c8d8df',
+          opacity: 0.94,
+          outline: true,
+        },
+      })
+    } catch (error) {
+      console.warn('Aether floor presentation skipped:', error)
+    }
+  })
+
+  spaces.forEach((space) => {
+    try {
+      mapView.updateState(space.raw, {
+        color: AETHER_SPACE_COLOR,
+        opacity: 0.98,
+        interactive: true,
+        hoverColor: AETHER_SPACE_HOVER_COLOR,
+      })
+    } catch (error) {
+      console.warn('Aether space presentation skipped:', error)
+    }
+  })
+}
+
+function waitForFirstMapRender(mapView: MapView) {
+  return new Promise<void>((resolve) => {
+    let settled = false
+    const timeout = window.setTimeout(finish, 1000)
+
+    function finish() {
+      if (settled) return
+
+      settled = true
+      window.clearTimeout(timeout)
+      mapView.off('post-render', finish)
+      resolve()
+    }
+
+    mapView.on('post-render', finish)
+  })
+}
 
 function AetherMappedinPage() {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapViewRef = useRef<MapView | null>(null)
   const cameraControllerRef = useRef<CameraController | null>(null)
   const wakeTimerRef = useRef<number | null>(null)
+  const labelRevealTimerRef = useRef<number | null>(null)
+  const labelDensityRef = useRef<LabelDensity | null>(null)
+  const labelsVisibleRef = useRef(true)
   const selectionMoveTimerRef = useRef<number | null>(null)
   const selectedSpaceRef = useRef<WorldSpace | null>(null)
   const handledSelectionRef = useRef<string | null>(null)
@@ -68,6 +193,8 @@ function AetherMappedinPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
+  const [labelsVisible, setLabelsVisible] = useState(true)
   const [searchState, setSearchState] = useState<SearchState>(
     searchSelectors.getState(),
   )
@@ -89,8 +216,8 @@ function AetherMappedinPage() {
     if (!mapView || !selectedSpace) return
 
     mapView.updateState(selectedSpace.raw, {
-      color: 'initial',
-      hoverColor: '#22d3ee',
+      color: AETHER_SPACE_COLOR,
+      hoverColor: AETHER_SPACE_HOVER_COLOR,
       interactive: true,
     })
     selectedSpaceRef.current = null
@@ -103,8 +230,8 @@ function AetherMappedinPage() {
 
       clearSelectedSpaceHighlight()
       mapView.updateState(space.raw, {
-        color: '#22d3ee',
-        hoverColor: '#67e8f9',
+        color: AETHER_SELECTED_SPACE_COLOR,
+        hoverColor: AETHER_SELECTED_SPACE_HOVER_COLOR,
         interactive: true,
       })
       selectedSpaceRef.current = space
@@ -128,6 +255,7 @@ function AetherMappedinPage() {
       duration: 900,
       easing: 'ease-in-out',
     })
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Floor focus' })
   }, [])
 
   const syncPresenceFloor = useCallback((floorId: string) => {
@@ -151,6 +279,22 @@ function AetherMappedinPage() {
     [syncPresenceFloor],
   )
 
+  const focusFloorById = useCallback(
+    (floorId: string) => {
+      activateFloor(floorId)
+
+      if (selectionMoveTimerRef.current) {
+        window.clearTimeout(selectionMoveTimerRef.current)
+      }
+
+      selectionMoveTimerRef.current = window.setTimeout(() => {
+        focusCurrentFloor()
+        selectionMoveTimerRef.current = null
+      }, 80)
+    },
+    [activateFloor, focusCurrentFloor],
+  )
+
   const createSpaceSelection = useCallback((space: WorldSpace) => ({
     type: 'space' as const,
     id: space.id,
@@ -161,10 +305,50 @@ function AetherMappedinPage() {
     floorName: space.floorName,
   }), [])
 
+  const addWorldLabels = useCallback(async (zoom?: number) => {
+    const mapView = mapViewRef.current
+    if (!mapView) return
+
+    const density = labelDensityForZoom(
+      zoom ?? presenceSelectors.getCurrentCamera()?.zoom ?? 14.2,
+    )
+    const labelSpaces = selectLabelSpaces(worldSelectors.getSpaces(), density)
+
+    mapView.Labels.removeAll()
+    const results = await Promise.allSettled(
+      labelSpaces.map((space) =>
+        mapView.Labels.add(space.raw, space.name, {
+          interactive: true,
+          enabled: true,
+          rank: density === 'detail' ? 'always-visible' : 'high',
+          appearance: {
+            margin: 8,
+            maxLines: 2,
+            maxWidth: 180,
+            textSize: density === 'major' ? 13 : 12,
+            textColor: '#172332',
+            textOutlineColor: 'rgba(255,255,255,0.88)',
+            pinColor: '#0f172a',
+            pinOutlineColor: 'rgba(255,255,255,0.82)',
+          },
+        }),
+      ),
+    )
+
+    labelDensityRef.current = density
+
+    const failedLabel = results.find((result) => result.status === 'rejected')
+    if (failedLabel?.status === 'rejected') {
+      throw failedLabel.reason
+    }
+  }, [])
+
   const clearRoute = useCallback(() => {
     routeRequestRef.current += 1
+    mapViewRef.current?.Navigation.stopTracking?.()
     mapViewRef.current?.Navigation.clear()
     presenceActions.setCurrentRoute({ status: 'idle' })
+    presenceActions.setCurrentFocus({ type: 'none' })
   }, [])
 
   const clearBlueDotMarkers = useCallback(() => {
@@ -339,6 +523,155 @@ function AetherMappedinPage() {
     [],
   )
 
+  const focusCampusCamera = useCallback(() => {
+    const mapView = mapViewRef.current
+    const cameraController = cameraControllerRef.current
+    if (!mapView || !cameraController) return
+
+    cameraController.flyToFloor(mapView.currentFloor, {
+      bearing: 0,
+      pitch: 48,
+      zoom: 14.2,
+      preset: 'campus',
+      applyZoom: true,
+      animate: true,
+      duration: 900,
+      easing: 'ease-in-out',
+    })
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Campus' })
+  }, [])
+
+  const focusSiteCamera = useCallback(() => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+
+    cameraController.setView(
+      {
+        bearing: cameraController.getState().bearing,
+        pitch: 50,
+        zoom: 15.6,
+        preset: 'site',
+      },
+      { applyZoom: true, animate: true, duration: 700, easing: 'ease-in-out' },
+    )
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Site' })
+  }, [])
+
+  const focusBuildingCamera = useCallback(() => {
+    const mapView = mapViewRef.current
+    const cameraController = cameraControllerRef.current
+    if (!mapView || !cameraController) return
+
+    const currentSelection = presenceSelectors.getCurrentSelection()
+    const selectedWorldSpace =
+      currentSelection.type === 'space' && currentSelection.id
+        ? worldSelectors.getSpaceById(currentSelection.id)
+        : null
+
+    cameraController.flyToFloor(selectedWorldSpace?.raw ?? mapView.currentFloor, {
+      bearing: cameraController.getState().bearing,
+      pitch: 58,
+      zoom: 17,
+      preset: 'building',
+      applyZoom: true,
+      animate: true,
+      duration: 800,
+      easing: 'ease-in-out',
+    })
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Building' })
+  }, [])
+
+  const focusTopCamera = useCallback(() => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+
+    const currentCamera = cameraController.getState()
+    cameraController.setView(
+      {
+        bearing: currentCamera.bearing,
+        pitch: 0,
+        zoom: Math.max(currentCamera.zoom, 15.2),
+        preset: 'top',
+      },
+      { applyZoom: true, animate: true, duration: 700, easing: 'ease-in-out' },
+    )
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Top' })
+  }, [])
+
+  const focusPerspectiveCamera = useCallback(() => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+
+    const currentCamera = cameraController.getState()
+    cameraController.setView(
+      {
+        bearing: currentCamera.bearing,
+        pitch: Math.max(currentCamera.pitch, 52),
+        zoom: Math.max(currentCamera.zoom, 15.2),
+        preset: 'perspective',
+      },
+      { applyZoom: true, animate: true, duration: 700, easing: 'ease-in-out' },
+    )
+    presenceActions.setCurrentFocus({ type: 'camera', label: 'Perspective' })
+  }, [])
+
+  const adjustCamera = useCallback(
+    (transform: { bearing?: number; pitch?: number; zoom?: number }) => {
+      const cameraController = cameraControllerRef.current
+      if (!cameraController) return
+
+      const currentCamera = cameraController.getState()
+      cameraController.setView(
+        {
+          bearing: transform.bearing ?? currentCamera.bearing,
+          pitch: transform.pitch ?? currentCamera.pitch,
+          zoom: transform.zoom ?? currentCamera.zoom,
+          preset: 'custom',
+        },
+        { applyZoom: true, animate: true, duration: 450, easing: 'ease-out' },
+      )
+      presenceActions.setCurrentFocus({ type: 'camera', label: 'Custom' })
+    },
+    [],
+  )
+
+  const toggleOrbit = useCallback(() => {
+    const cameraController = cameraControllerRef.current
+    if (!cameraController) return
+
+    if (cameraController.getState().orbiting) cameraController.stopOrbit()
+    else cameraController.orbit()
+  }, [])
+
+  const resetCamera = useCallback(() => {
+    clearRoute()
+    presenceActions.setCurrentSelection({ type: 'none' })
+    presenceActions.setCurrentSpace(null)
+    searchActions.clear()
+    setSuggestions([])
+    focusCampusCamera()
+  }, [clearRoute, focusCampusCamera])
+
+  const toggleLabels = useCallback(async () => {
+    const mapView = mapViewRef.current
+    if (!mapView) return
+
+    if (labelsVisible) {
+      mapView.Labels.removeAll()
+      labelsVisibleRef.current = false
+      setLabelsVisible(false)
+      return
+    }
+
+    try {
+      await addWorldLabels(presenceSelectors.getCurrentCamera()?.zoom)
+      labelsVisibleRef.current = true
+      setLabelsVisible(true)
+    } catch (error) {
+      console.warn('Aether labels are waiting for the map renderer:', error)
+    }
+  }, [addWorldLabels, labelsVisible])
+
   const loadMap = useCallback(async () => {
     const mapElement = mapElementRef.current
     if (!mapElement) return undefined
@@ -349,6 +682,10 @@ function AetherMappedinPage() {
     if (wakeTimerRef.current) {
       window.clearTimeout(wakeTimerRef.current)
       wakeTimerRef.current = null
+    }
+    if (labelRevealTimerRef.current) {
+      window.clearTimeout(labelRevealTimerRef.current)
+      labelRevealTimerRef.current = null
     }
 
     const { mapData, mapView, token } = await initializeMappedinMap(mapElement)
@@ -388,23 +725,30 @@ function AetherMappedinPage() {
       elevation: Number(mapView.currentFloor.elevation ?? 0),
     })
 
-    worldSelectors.getSpaces().forEach((space) => {
-      mapView.updateState(space.raw, {
-        interactive: true,
-        hoverColor: '#22d3ee',
-      })
-    })
+    const worldSpaces = worldSelectors.getSpaces()
+    enableSpaceInteractivity(mapView, worldSpaces, AETHER_SPACE_HOVER_COLOR)
+    applyWorldSurfacePresentation(
+      mapView,
+      mapData.getByType('floor') as Floor[],
+      worldSpaces,
+    )
+    setLabelsVisible(false)
+    labelsVisibleRef.current = false
+    labelDensityRef.current = null
 
     const cameraController = createCameraController(mapView, {
-      initialPitch: 0,
-      initialZoom: 13.2,
-      initialPreset: 'top',
+      initialBearing: -24,
+      initialPitch: 54,
+      initialZoom: 13.1,
+      initialPreset: 'perspective',
     })
     cameraControllerRef.current = cameraController
+    await waitForFirstMapRender(mapView)
     cameraController.reset(mapView.currentFloor, {
-      pitch: 0,
-      zoom: 13.2,
-      preset: 'top',
+      bearing: -24,
+      pitch: 54,
+      zoom: 13.1,
+      preset: 'perspective',
       applyZoom: true,
     })
 
@@ -413,15 +757,38 @@ function AetherMappedinPage() {
     wakeTimerRef.current = window.setTimeout(() => {
       cameraController.flyToFloor(mapView.currentFloor, {
         bearing: 18,
-        pitch: 48,
-        zoom: 14.2,
+        pitch: 56,
+        zoom: 15,
         preset: 'campus',
         applyZoom: true,
         animate: true,
-        duration: 1400,
+        duration: 1900,
         easing: 'ease-in-out',
       })
-    }, 180)
+    }, 2200)
+
+    labelRevealTimerRef.current = window.setTimeout(() => {
+      void addWorldLabels(cameraController.getState().zoom)
+        .then(() => {
+          labelsVisibleRef.current = true
+          setLabelsVisible(true)
+          labelRevealTimerRef.current = null
+        })
+        .catch((error) => {
+          console.warn('Aether labels are waiting for the map renderer:', error)
+          labelRevealTimerRef.current = window.setTimeout(() => {
+            void addWorldLabels(cameraController.getState().zoom)
+              .then(() => {
+                labelsVisibleRef.current = true
+                setLabelsVisible(true)
+                labelRevealTimerRef.current = null
+              })
+              .catch(() => {
+                labelRevealTimerRef.current = null
+              })
+          }, 900)
+        })
+    }, 3000)
 
     mapView.on('floor-change', (event) => {
       presenceActions.setCurrentFloor({
@@ -435,15 +802,41 @@ function AetherMappedinPage() {
 
     mapView.on('camera-change', (transform) => {
       cameraController.syncFromCameraChange(transform)
+
+      if (!labelsVisibleRef.current) return
+
+      const currentZoom = cameraController.getState().zoom
+      const nextDensity = labelDensityForZoom(currentZoom)
+      if (labelDensityRef.current === nextDensity) return
+
+      labelDensityRef.current = nextDensity
+      void addWorldLabels(currentZoom).catch((error) => {
+        console.warn('Aether labels are waiting for the map renderer:', error)
+      })
     })
 
     mapView.on('click', (event) => {
       const clickedSpace = event.spaces?.[0]
-      if (!clickedSpace?.id) return
+      const clickedLabel = event.labels?.[0]
 
-      handledSelectionRef.current = null
-      searchActions.select(String(clickedSpace.id))
-      setSuggestions([])
+      if (clickedSpace?.id) {
+        handledSelectionRef.current = null
+        searchActions.select(String(clickedSpace.id))
+        setSuggestions([])
+        return
+      }
+
+      if (clickedLabel?.text) {
+        const match = worldSelectors
+          .getSpaces()
+          .find((space) => space.name === clickedLabel.text)
+
+        if (match) {
+          handledSelectionRef.current = null
+          searchActions.select(match.id)
+          setSuggestions([])
+        }
+      }
     })
 
     mapView.on('navigation-connection-click', (event) => {
@@ -451,7 +844,7 @@ function AetherMappedinPage() {
     })
 
     return mapView
-  }, [activateFloor, setAetherLoadState])
+  }, [activateFloor, addWorldLabels, setAetherLoadState])
 
   useEffect(() => {
     return presenceSelectors.subscribe(setPresenceState)
@@ -471,6 +864,7 @@ function AetherMappedinPage() {
     if (selection.type === 'none' || !selection.id) {
       handledSelectionRef.current = null
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({ type: 'none' })
       return
     }
 
@@ -489,6 +883,12 @@ function AetherMappedinPage() {
 
     if (selection.type === 'building') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: 'building',
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+      })
       cameraController.flyToFloor(mapView.currentFloor, {
         bearing: cameraController.getState().bearing,
         pitch: 48,
@@ -504,6 +904,12 @@ function AetherMappedinPage() {
 
     if (selection.type === 'floor') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: 'floor',
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+      })
       activateFloor(selection.id)
 
       selectionMoveTimerRef.current = window.setTimeout(() => {
@@ -515,6 +921,13 @@ function AetherMappedinPage() {
 
     if (selection.type === 'label') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: 'label',
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+        floorId: selection.floorId,
+      })
       if (selection.floorId) {
         activateFloor(selection.floorId)
 
@@ -528,11 +941,39 @@ function AetherMappedinPage() {
 
     if (selection.type !== 'space') {
       clearSelectedSpaceHighlight()
+      worldActions.setSelection({
+        type: selection.type,
+        id: selection.id,
+        worldId: selection.worldId,
+        name: selection.name,
+        floorId: selection.floorId,
+      })
       return
     }
 
     const selectedSpace = worldSelectors.getSpaceById(selection.id)
     if (!selectedSpace) return
+
+    worldActions.setSelection({
+      type: 'space',
+      id: selectedSpace.id,
+      worldId: selectedSpace.worldId,
+      name: selectedSpace.name,
+      floorId: selectedSpace.floorId,
+    })
+
+    const activeRoute = presenceSelectors.getCurrentRoute()
+    if (activeRoute.status === 'setting-origin') {
+      presenceActions.setCurrentRoute({
+        ...activeRoute,
+        origin: createSpaceSelection(selectedSpace),
+      })
+    } else if (activeRoute.status === 'setting-destination') {
+      presenceActions.setCurrentRoute({
+        ...activeRoute,
+        destination: createSpaceSelection(selectedSpace),
+      })
+    }
 
     if (
       selectedSpace.floorId &&
@@ -555,6 +996,7 @@ function AetherMappedinPage() {
   }, [
     activateFloor,
     clearSelectedSpaceHighlight,
+    createSpaceSelection,
     focusCurrentFloor,
     highlightSelectedSpace,
     presenceState,
@@ -563,22 +1005,31 @@ function AetherMappedinPage() {
   const updateSearch = (nextQuery: string) => {
     if (!nextQuery.trim()) {
       setSuggestions([])
+      setActiveSuggestionIndex(0)
       searchActions.clear()
       return
     }
 
-    setSuggestions(
-      searchActions.suggest(nextQuery, {
-        limit: 6,
-        types: ['building', 'floor', 'space', 'label'],
-      }),
-    )
+    const nextSuggestions = searchActions.suggest(nextQuery, {
+      limit: 8,
+      types: ['building', 'floor', 'space', 'label'],
+    })
+    setSuggestions(nextSuggestions)
+    setActiveSuggestionIndex(0)
   }
 
   const selectSearchResult = (result: SearchResult) => {
     handledSelectionRef.current = null
     searchActions.select(result)
     setSuggestions([])
+    setActiveSuggestionIndex(0)
+  }
+
+  const selectWorldSpace = (space: WorldSpace) => {
+    handledSelectionRef.current = null
+    searchActions.select(space.id)
+    setSuggestions([])
+    setActiveSuggestionIndex(0)
   }
 
   const setRouteEndpoint = (endpoint: 'origin' | 'destination') => {
@@ -607,6 +1058,31 @@ function AetherMappedinPage() {
       id: nextSelection.id,
       worldId: nextSelection.worldId,
       label: nextSelection.name,
+    })
+  }
+
+  const startRoutePick = (endpoint: 'origin' | 'destination') => {
+    const currentRoute = presenceSelectors.getCurrentRoute()
+    const currentOrigin =
+      currentRoute.status === 'idle' ? undefined : currentRoute.origin
+    const currentDestination =
+      currentRoute.status === 'idle' ? undefined : currentRoute.destination
+
+    presenceActions.setCurrentRoute({
+      status: endpoint === 'origin' ? 'setting-origin' : 'setting-destination',
+      origin: currentOrigin,
+      destination: currentDestination,
+      message:
+        endpoint === 'origin'
+          ? 'Select a room for the start point'
+          : 'Select a room for the destination',
+    })
+    presenceActions.setCurrentFocus({
+      type: 'route',
+      label:
+        endpoint === 'origin'
+          ? 'Picking route origin'
+          : 'Picking route destination',
     })
   }
 
@@ -750,10 +1226,14 @@ function AetherMappedinPage() {
     return () => {
       cancelled = true
       if (wakeTimerRef.current) window.clearTimeout(wakeTimerRef.current)
+      if (labelRevealTimerRef.current) {
+        window.clearTimeout(labelRevealTimerRef.current)
+      }
       if (selectionMoveTimerRef.current) {
         window.clearTimeout(selectionMoveTimerRef.current)
       }
       wakeTimerRef.current = null
+      labelRevealTimerRef.current = null
       selectionMoveTimerRef.current = null
       presenceProviderStopRef.current?.()
       presenceProviderStopRef.current = null
@@ -802,46 +1282,58 @@ function AetherMappedinPage() {
     worldState.venue?.name ??
     ''
   const currentFloorName =
-    presenceState.currentFloor?.name ?? currentFloor?.name ?? ''
-  const selectedSpaceName =
+    presenceState.currentFloor?.name ?? currentFloor?.name ?? 'none'
+  const currentRoomName =
+    presenceState.currentSpace?.name ??
     selectedSpace?.name ??
-    (presenceState.currentSelection.type === 'space'
-      ? presenceState.currentSelection.name
-      : '') ??
-    ''
-  const cameraBearing =
-    presenceState.currentCamera === null
-      ? ''
-      : `${Math.round(presenceState.currentCamera.bearing)}°`
-  const cameraPitch =
-    presenceState.currentCamera === null
-      ? ''
-      : `${Math.round(presenceState.currentCamera.pitch)}°`
-  const cameraZoom =
-    presenceState.currentCamera === null
-      ? ''
-      : presenceState.currentCamera.zoom.toFixed(1)
-  const currentSearchText =
-    presenceState.currentSearch.selectedResultName ??
-    presenceState.currentSearch.query
-  const currentSearch =
-    currentSearchText
-      ? [
-          currentSearchText,
-          `${presenceState.currentSearch.resultCount}`,
+    (presenceState.currentSpace?.id ? presenceState.currentSpace.id : 'none')
+  const currentSelectionSummary =
+    presenceState.currentSelection.type === 'none'
+      ? 'none'
+      : [
+          presenceState.currentSelection.type,
+          presenceState.currentSelection.name ??
+            presenceState.currentSelection.id ??
+            presenceState.currentSelection.worldId,
         ]
           .filter(Boolean)
           .join(' · ')
-      : `${presenceState.currentSearch.resultCount}`
+  const cameraSummary =
+    presenceState.currentCamera === null
+      ? 'none'
+      : [
+          `${Math.round(presenceState.currentCamera.bearing)}°`,
+          `${Math.round(presenceState.currentCamera.pitch)}° pitch`,
+          `${presenceState.currentCamera.zoom.toFixed(1)} zoom`,
+          presenceState.currentCamera.preset,
+          presenceState.currentCamera.orbiting ? 'orbiting' : undefined,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+  const currentSearchQuery = presenceState.currentSearch.query || 'none'
+  const presenceStatus = [
+    presenceState.currentLoadState,
+    presenceState.currentUserLocation.status,
+    presenceState.currentProvider.activeProvider ?? 'no provider',
+    presenceState.currentProvider.followCamera ? 'follow on' : 'follow off',
+  ].join(' · ')
+  const worldStatus = [
+    worldState.venue ? 'venue' : 'no venue',
+    worldState.building ? 'building' : 'no building',
+    `${worldState.floors.length} floors`,
+    `${worldState.spaces.length} spaces`,
+    `${worldState.labels.length} labels`,
+    `${worldState.overlays.length} overlays`,
+  ].join(' · ')
   const missionControlRows = [
-    ['Current Building', currentBuildingName],
     ['Current Floor', currentFloorName],
-    ['Selected Space', selectedSpaceName],
-    ['Camera Bearing', cameraBearing],
-    ['Camera Pitch', cameraPitch],
-    ['Camera Zoom', cameraZoom],
-    ['Current Search', currentSearch],
-    ['Loading State', presenceState.currentLoadState],
+    ['Current Room', currentRoomName],
+    ['Current Selection', currentSelectionSummary],
+    ['Camera', cameraSummary],
+    ['Search Query', currentSearchQuery],
+    ['Search Result Count', `${presenceState.currentSearch.resultCount}`],
+    ['Presence Status', presenceStatus],
+    ['World Status', worldStatus],
   ]
   const userLocation = presenceState.currentUserLocation
   const providerState = presenceState.currentProvider
@@ -855,6 +1347,7 @@ function AetherMappedinPage() {
       : ''
   const activeProviderLabel = providerState.activeProvider ?? ''
   const currentRoute = presenceState.currentRoute
+  const currentCamera = presenceState.currentCamera
   const routeOriginName =
     currentRoute.status === 'idle' || currentRoute.origin?.type === 'none'
       ? ''
@@ -890,11 +1383,33 @@ function AetherMappedinPage() {
         ]
           .filter(Boolean)
           .join(' · ')
+  const visibleSpaces = searchState.query.trim()
+    ? searchState.results
+        .filter((result) => result.type === 'space')
+        .map((result) => worldSelectors.getSpaceById(result.id))
+        .filter((space): space is WorldSpace => Boolean(space))
+        .slice(0, 40)
+    : currentFloor?.id
+      ? worldSelectors.getSpacesByFloor(currentFloor.id).slice(0, 40)
+      : worldState.spaces.slice(0, 40)
+  const nearbySpaces = selectedSpace?.floorId
+    ? worldSelectors
+        .getSpacesByFloor(selectedSpace.floorId)
+        .filter((space) => space.id !== selectedSpace.id)
+        .slice(0, 5)
+    : []
+  const cameraBearingValue = currentCamera?.bearing ?? 0
+  const cameraPitchValue = currentCamera?.pitch ?? 48
+  const cameraZoomValue = currentCamera?.zoom ?? 14.2
+  const routeIsPicking =
+    currentRoute.status === 'setting-origin' ||
+    currentRoute.status === 'setting-destination'
   const selectionPanelRows = selectedSpace
     ? [
         ['Floor', selectedSpace.floorName],
         ['Mappedin ID', selectedSpace.id],
-        ['Search', presenceState.currentSearch.selectedResultName ?? ''],
+        ['Search', presenceState.currentSearch.selectedResultName ?? selectedSpace.name],
+        ['Nearby Context', `${nearbySpaces.length} spaces`],
       ]
     : []
 
@@ -903,16 +1418,16 @@ function AetherMappedinPage() {
       mapReady={loadState === 'ready'}
       mapCanvas={<div ref={mapElementRef} className="h-full w-full" />}
       topBar={
-        <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+        <div className="flex items-center justify-between gap-5 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-cyan-200/75">
               Aether
             </p>
-            <p className="mt-1 text-sm font-semibold text-white">
+            <p className="mt-1 text-sm font-semibold text-white/88">
               Spatial Intelligence
             </p>
           </div>
-          <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-xs font-medium text-emerald-200">
+          <div className="inline-flex shrink-0 items-center gap-2 rounded-full border border-emerald-300/12 bg-emerald-300/[0.06] px-3 py-1.5 text-xs font-medium text-emerald-200/85">
             <span className="h-2 w-2 rounded-full bg-emerald-300" />
             {loadState === 'ready' ? 'Mappedin online' : 'Preparing map'}
           </div>
@@ -920,34 +1435,67 @@ function AetherMappedinPage() {
       }
       topOmnibox={
         <div className="relative">
-          <label className="flex items-center gap-3 px-4 py-3">
+          <label className="flex items-center gap-3 px-5 py-4">
             <Search size={17} className="shrink-0 text-cyan-200/80" />
             <div className="min-w-0 flex-1">
               <input
                 value={searchState.query}
                 onChange={(event) => updateSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown' && suggestions.length > 0) {
+                    event.preventDefault()
+                    setActiveSuggestionIndex((current) =>
+                      current >= suggestions.length - 1 ? 0 : current + 1,
+                    )
+                  }
+
+                  if (event.key === 'ArrowUp' && suggestions.length > 0) {
+                    event.preventDefault()
+                    setActiveSuggestionIndex((current) =>
+                      current <= 0 ? suggestions.length - 1 : current - 1,
+                    )
+                  }
+
+                  if (event.key === 'Enter' && suggestions[activeSuggestionIndex]) {
+                    event.preventDefault()
+                    selectSearchResult(suggestions[activeSuggestionIndex].result)
+                  }
+
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setSuggestions([])
+                    setActiveSuggestionIndex(0)
+                  }
+                }}
                 placeholder="Search rooms, floors, assets, equipment"
                 className="w-full bg-transparent text-sm font-medium text-slate-100 outline-none placeholder:text-slate-400"
               />
               <p className="truncate text-xs text-slate-500">
-                {suggestions.length > 0
-                  ? `${suggestions.length} live matches`
-                  : selectedSpace?.floorName ?? 'Search the live World model'}
+                {searchState.query.trim()
+                  ? `${searchState.results.length} results from World`
+                  : selectedSpace?.floorName ?? `${worldState.spaces.length} searchable spaces`}
               </p>
             </div>
-            <div className="hidden rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-medium text-slate-400 sm:block">
-              {searchState.query.trim() ? 'Live' : 'Idle'}
+            <div className="hidden rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1 text-[11px] font-medium text-slate-400 sm:block">
+              {searchState.query.trim()
+                ? `${searchState.results.length} results`
+                : `${worldState.spaces.length} spaces`}
             </div>
           </label>
 
           {suggestions.length > 0 && (
-            <div className="absolute left-3 right-3 top-[calc(100%+0.5rem)] overflow-hidden rounded-2xl border border-cyan-100/10 bg-[#061017]/95 shadow-2xl backdrop-blur-2xl">
-              {suggestions.map((suggestion) => (
+            <div className="absolute left-4 right-4 top-[calc(100%+0.65rem)] overflow-hidden rounded-2xl border border-cyan-100/[0.06] bg-[#061017]/86 backdrop-blur-[36px]">
+              {suggestions.map((suggestion, index) => (
                 <button
                   key={`${suggestion.type}:${suggestion.id}`}
                   type="button"
                   onClick={() => selectSearchResult(suggestion.result)}
-                  className="flex w-full items-center justify-between gap-4 border-b border-white/8 px-4 py-3 text-left transition last:border-b-0 hover:bg-cyan-200/[0.07]"
+                  onMouseEnter={() => setActiveSuggestionIndex(index)}
+                  className={`flex w-full items-center justify-between gap-4 border-b border-white/[0.055] px-5 py-3.5 text-left transition last:border-b-0 ${
+                    activeSuggestionIndex === index
+                      ? 'bg-cyan-200/[0.12] text-white'
+                      : 'hover:bg-cyan-200/[0.07]'
+                  }`}
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium text-slate-100">
@@ -957,11 +1505,17 @@ function AetherMappedinPage() {
                       {suggestion.label}
                     </span>
                   </span>
-                  <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-cyan-200/70">
+                  <span className="rounded-full border border-white/[0.06] px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-cyan-200/70">
                     {suggestion.type}
                   </span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {searchState.query.trim() && suggestions.length === 0 && (
+            <div className="absolute left-4 right-4 top-[calc(100%+0.65rem)] rounded-2xl border border-cyan-100/[0.06] bg-[#061017]/86 px-5 py-3.5 text-sm text-slate-400 backdrop-blur-[36px]">
+              0 results in World
             </div>
           )}
         </div>
@@ -1005,9 +1559,105 @@ function AetherMappedinPage() {
               ))}
             </div>
           </div>
-          <p className="text-xs leading-5 text-slate-500">
-            {currentFloor?.name ?? 'Aether Core'}
-          </p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Building2 size={16} className="text-cyan-300" />
+                Floors
+              </div>
+              <span className="text-xs text-slate-500">
+                {worldState.floors.length}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {worldState.floors.map((floor) => (
+                <button
+                  key={floor.id}
+                  type="button"
+                  disabled={loadState !== 'ready'}
+                  onClick={() => focusFloorById(floor.id)}
+                  className={`rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    currentFloor?.id === floor.id
+                      ? 'border-cyan-200/40 bg-cyan-200/[0.14] text-cyan-100'
+                      : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/10'
+                  }`}
+                >
+                  {floor.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Compass size={16} className="text-cyan-300" />
+                Camera
+              </div>
+              <span className="text-xs text-slate-500">
+                {currentCamera?.preset ?? 'ready'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusCampusCamera} className="rounded-xl border border-cyan-200/20 bg-cyan-200/[0.06] px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-200/[0.12] disabled:cursor-not-allowed disabled:opacity-40"><Navigation className="mr-1 inline" size={14} />Campus</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusSiteCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Target className="mr-1 inline" size={14} />Site</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusBuildingCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Building2 className="mr-1 inline" size={14} />Bldg</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusTopCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Compass className="mr-1 inline" size={14} />Top</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusPerspectiveCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Compass className="mr-1 inline" size={14} />Perspective</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={focusCurrentFloor} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Building2 className="mr-1 inline" size={14} />Floor</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue - 25 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw className="mr-1 inline" size={14} />Left</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue + 25 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><RotateCw className="mr-1 inline" size={14} />Right</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ pitch: cameraPitchValue + 8 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Plus className="mr-1 inline" size={14} />Pitch</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ pitch: cameraPitchValue - 8 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Minus className="mr-1 inline" size={14} />Pitch</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue + 0.7 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Plus className="mr-1 inline" size={14} />Zoom</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue - 0.7 })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><Minus className="mr-1 inline" size={14} />Zoom</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={toggleOrbit} className={`rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${currentCamera?.orbiting ? 'border-emerald-200/30 bg-emerald-200/[0.12] text-emerald-100' : 'border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/10'}`}><Play className="mr-1 inline" size={14} />Orbit</button>
+              <button type="button" disabled={loadState !== 'ready'} onClick={resetCamera} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw className="mr-1 inline" size={14} />Reset</button>
+            </div>
+            <p className="text-xs leading-5 text-slate-500">
+              Bearing {Math.round(cameraBearingValue)}° · Pitch {Math.round(cameraPitchValue)}° · Zoom {cameraZoomValue.toFixed(1)}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <MapPin size={16} className="text-cyan-300" />
+                Spaces
+              </div>
+              <button
+                type="button"
+                disabled={loadState !== 'ready'}
+                onClick={() => void toggleLabels()}
+                className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {labelsVisible ? <EyeOff className="mr-1 inline" size={14} /> : <Eye className="mr-1 inline" size={14} />}
+                {labelsVisible ? 'Hide labels' : 'Show labels'}
+              </button>
+            </div>
+            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {visibleSpaces.map((space) => (
+                <button
+                  key={space.id}
+                  type="button"
+                  onClick={() => selectWorldSpace(space)}
+                  className={`w-full rounded-xl border p-3 text-left transition ${
+                    selectedSpace?.id === space.id
+                      ? 'border-cyan-200/40 bg-cyan-200/[0.12]'
+                      : 'border-white/8 bg-white/[0.035] hover:bg-white/[0.08]'
+                  }`}
+                >
+                  <span className="block truncate text-sm font-semibold text-slate-100">
+                    {space.name}
+                  </span>
+                  <span className="mt-1 block truncate text-xs text-slate-500">
+                    {space.floorName}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
               <LocateFixed size={16} className="text-cyan-300" />
@@ -1071,9 +1721,16 @@ function AetherMappedinPage() {
       navigation={
         <div className="space-y-3 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Navigation size={16} className="text-cyan-300" />
+            <RouteIcon size={16} className="text-cyan-300" />
             Route
           </div>
+          {routeIsPicking && (
+            <p className="rounded-xl border border-cyan-200/20 bg-cyan-200/[0.07] px-3 py-2 text-xs leading-5 text-cyan-100">
+              {currentRoute.status === 'setting-origin'
+                ? 'Select a room from search, the space list, or the map to set the start.'
+                : 'Select a room from search, the space list, or the map to set the destination.'}
+            </p>
+          )}
           <div className="grid gap-2 text-xs text-slate-400">
             {[
               ['Origin', routeOriginName],
@@ -1100,6 +1757,7 @@ function AetherMappedinPage() {
               onClick={() => setRouteEndpoint('origin')}
               className="rounded-xl border border-cyan-200/20 bg-cyan-200/[0.06] px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-200/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
             >
+              <Flag className="mr-1 inline" size={14} />
               Set Origin
             </button>
             <button
@@ -1108,7 +1766,32 @@ function AetherMappedinPage() {
               onClick={() => setRouteEndpoint('destination')}
               className="rounded-xl border border-violet-200/20 bg-violet-200/[0.06] px-3 py-2 text-xs font-semibold text-violet-100 transition hover:bg-violet-200/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
             >
+              <Target className="mr-1 inline" size={14} />
               Set Destination
+            </button>
+            <button
+              type="button"
+              disabled={loadState !== 'ready'}
+              onClick={() => startRoutePick('origin')}
+              className={`rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                currentRoute.status === 'setting-origin'
+                  ? 'border-emerald-200/30 bg-emerald-200/[0.12] text-emerald-100'
+                  : 'border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/10'
+              }`}
+            >
+              Pick Start
+            </button>
+            <button
+              type="button"
+              disabled={loadState !== 'ready'}
+              onClick={() => startRoutePick('destination')}
+              className={`rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                currentRoute.status === 'setting-destination'
+                  ? 'border-violet-200/30 bg-violet-200/[0.12] text-violet-100'
+                  : 'border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/10'
+              }`}
+            >
+              Pick Destination
             </button>
             <button
               type="button"
@@ -1180,21 +1863,53 @@ function AetherMappedinPage() {
               ))}
             </div>
           )}
+          {nearbySpaces.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200/60">
+                Nearby
+              </p>
+              <div className="grid gap-2">
+                {nearbySpaces.map((space) => (
+                  <button
+                    key={space.id}
+                    type="button"
+                    onClick={() => selectWorldSpace(space)}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2 text-left text-xs text-slate-300 transition duration-300 hover:border-cyan-200/20 hover:bg-cyan-200/[0.07] hover:text-cyan-50"
+                  >
+                    <span className="truncate">{space.name}</span>
+                    <span className="shrink-0 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                      {space.floorName}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       }
       bottomStatusBar={
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs text-slate-400">
-          <div className="flex items-center gap-3">
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-            <span>Aether Core</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span>Mappedin</span>
-            <span>State: {loadState}</span>
-            <span>
-              Focus:{' '}
-              {currentFocusLabel}
+        <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 text-xs text-slate-400">
+          <div className="flex min-w-0 items-center gap-3 text-slate-400/85">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
+            <span className="shrink-0">Camera</span>
+            <span className="truncate">
+              {Math.round(cameraBearingValue)}° · {Math.round(cameraPitchValue)}° · {cameraZoomValue.toFixed(1)}
             </span>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusCurrentFloor} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Floor</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusTopCamera} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Top</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={focusPerspectiveCamera} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">3D</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue - 25 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Rotate -</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ bearing: cameraBearingValue + 25 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Rotate +</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue + 0.7 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Zoom +</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={() => adjustCamera({ zoom: cameraZoomValue - 0.7 })} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Zoom -</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={toggleOrbit} className={`rounded-lg border px-2.5 py-1.5 font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${currentCamera?.orbiting ? 'border-emerald-200/20 bg-emerald-200/[0.08] text-emerald-100/90' : 'border-white/[0.06] bg-white/[0.025] text-slate-200/90 hover:bg-white/[0.07]'}`}>Orbit</button>
+            <button type="button" disabled={loadState !== 'ready'} onClick={resetCamera} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-2.5 py-1.5 font-semibold text-slate-200/90 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40">Reset</button>
+          </div>
+          <div className="flex min-w-0 items-center gap-4 text-slate-500">
+            <span>State: {loadState}</span>
+            <span className="truncate">Focus: {currentFocusLabel}</span>
           </div>
         </div>
       }
