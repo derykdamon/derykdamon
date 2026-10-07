@@ -8,7 +8,8 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "recovery/macbook-air-20261007": false
+      "recovery/macbook-air-20261007": false,
+      "feat/hrl-aviation": false
     }
   }
 }

@@ -7,17 +7,24 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck:api": "tsc -p tsconfig.api.json",
+    "test:aviation": "node --test tests/aviation.test.mts",
+    "test:aviation:database": "node --env-file=.env.local --env-file=.env.development.local --test tests/aviation-database.test.mts",
+    "db:aviation:migrate": "node --env-file=.env.local scripts/aviation-migrate.mts",
+    "aviation:outbox": "node --env-file=.env.local scripts/aviation-outbox.mts"
   },
   "dependencies": {
     "@mappedin/mappedin-js": "^6.23.0",
     "@mappedin/react-sdk": "^6.23.0",
+    "@neondatabase/serverless": "^1.2.0",
     "@tailwindcss/vite": "^4.3.3",
     "lucide-react": "^1.28.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.3.0",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

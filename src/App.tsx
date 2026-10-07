@@ -12,6 +12,9 @@ import ContactPage from './pages/ContactPage'
 import HomePage from './pages/HomePage'
 import PlatformPage from './pages/PlatformPage'
 import SolutionsPage from './pages/SolutionsPage'
+import AviationPage from './features/aviation/AviationPage'
+import AviationRequest from './features/aviation/AviationRequest'
+import AviationPortal from './features/aviation/AviationPortal'
 
 function App() {
   return (
@@ -22,6 +25,9 @@ function App() {
         <Route path="solutions" element={<SolutionsPage />} />
         <Route path="about" element={<AboutPage />} />
         <Route path="contact" element={<ContactPage />} />
+        <Route path="aviation" element={<AviationPage />} />
+        <Route path="aviation/request" element={<AviationRequest />} />
+        <Route path="aviation/portal" element={<AviationPortal />} />
       </Route>
 
       <Route

@@ -6,6 +6,7 @@ const navigation = [
     { name: 'Home', path: '/' },
     { name: 'Platform', path: '/platform' },
     { name: 'Solutions', path: '/solutions' },
+    { name: 'Aviation', path: '/aviation' },
     { name: 'About', path: '/about' },
 ]
 
