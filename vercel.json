@@ -5,5 +5,10 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "recovery/macbook-air-20261007": false
+    }
+  }
 }
