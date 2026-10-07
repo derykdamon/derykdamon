@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Compass } from 'lucide-react'
-import { inquirySchema, isService, services, type Service } from './requestSchema'
+import { inquiryStructureSchema, inquiryValidationSchema, isService, services, type Service } from './requestSchema'
 import { fingerprint, readSubmission, saveSubmission } from './submissionSession'
 import './aviation.css'
 
@@ -42,7 +42,7 @@ export default function AviationRequest() {
   const payload = () => ({ ...contact, service, details: details[service] })
   const go = (next: string) => { setErrors({}); setParams({ service, step: next }) }
   const validate = (scope?: string) => {
-    const parsed = inquirySchema.safeParse(payload())
+    const parsed = inquiryValidationSchema(pendingSubmission).safeParse(payload())
     if (parsed.success) { setErrors({}); return true }
     const issues = parsed.error.issues.filter(issue => !scope || (scope === 'details' ? issue.path[0] === 'details' : issue.path[0] !== 'details'))
     setErrors(Object.fromEntries(issues.map(issue => [issue.path.join('.'), issue.message])))
@@ -51,7 +51,7 @@ export default function AviationRequest() {
   async function send() {
     if (submitting.current || (!uncertain && !validate())) return
     submitting.current = true; setBusy(true); setErrors({})
-    const body = uncertain && submission.current ? submission.current.payload : JSON.stringify(inquirySchema.parse(payload()))
+    const body = uncertain && submission.current ? submission.current.payload : JSON.stringify(inquiryStructureSchema.parse(payload()))
     try {
       const hash = await fingerprint(body)
       if (previous && !previous.reference && previous.fingerprint !== hash) {

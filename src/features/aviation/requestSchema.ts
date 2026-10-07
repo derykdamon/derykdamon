@@ -21,7 +21,7 @@ const common = {
   consent: z.literal(true, { error: 'Please acknowledge how this request works.' }),
   website: z.literal('').optional(),
 }
-export const inquirySchema = z.discriminatedUnion('service', [
+export const inquiryStructureSchema = z.discriminatedUnion('service', [
   z.strictObject({ ...common, service: z.literal('flight'), details: z.strictObject({ from: text(80), to: text(80), departure: date, returnDate: optionalDate, passengers: z.number().int().min(1).max(20) }) }),
   z.strictObject({ ...common, service: z.literal('leasing'), details: z.strictObject({ space: z.enum(['office', 'hangar', 'both']), size: z.string().trim().max(120), timing: text(120) }) }),
   z.strictObject({ ...common, service: z.literal('car'), details: z.strictObject({ arrival: date, flight: z.string().trim().max(80), passengers: z.number().int().min(1).max(8), preference: z.enum(['flexible', 'sedan', 'suv', 'accessibility']) }) }),
@@ -29,9 +29,13 @@ export const inquirySchema = z.discriminatedUnion('service', [
   z.strictObject({ ...common, service: z.literal('detailing'), details: z.strictObject({ aircraft: text(120), location: text(120), care: z.enum(['exterior', 'interior', 'both']), date: optionalDate }) }),
 ]).superRefine((value, ctx) => {
   if (value.service === 'flight' && value.details.returnDate && value.details.returnDate < value.details.departure) ctx.addIssue({ code: 'custom', path: ['details', 'returnDate'], message: 'Return must be on or after departure.' })
+})
+// Only new inquiries use time-dependent rules; saved payloads remain recoverable.
+export const inquirySchema = inquiryStructureSchema.superRefine((value, ctx) => {
   const dates = value.service === 'flight' ? [['departure', value.details.departure]] : value.service === 'car' ? [['arrival', value.details.arrival]] : value.service === 'detailing' && value.details.date ? [['date', value.details.date]] : []
   // Date-only planning requests use the airport's local day, allowing yesterday in UTC.
   const earliest = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
   dates.forEach(([field, value]) => { if (value < earliest) ctx.addIssue({ code: 'custom', path: ['details', field], message: 'Choose an upcoming date.' }) })
 })
+export const inquiryValidationSchema = (recovering: boolean) => recovering ? inquiryStructureSchema : inquirySchema
 export type Inquiry = z.infer<typeof inquirySchema>

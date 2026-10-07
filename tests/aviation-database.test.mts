@@ -5,6 +5,32 @@ import { neon } from '@neondatabase/serverless'
 import { intake } from '../server/aviation/intake.ts'
 import { processOutbox } from '../server/aviation/outbox.ts'
 
+test('real Neon: saved dated requests recover after time advances; new stale requests and changed payloads do not', { skip: !process.env.HRL_DATABASE_TEST }, async t => {
+  const sql = neon(process.env.HRL_DATABASE_URL!)
+  const id = randomUUID(), fresh = randomUUID()
+  const day = new Date().toISOString().slice(0,10)
+  const payload = { service:'flight', name:'Synthetic aged-date QA', email:'qa@example.com', phone:'', notes:'Synthetic regression fixture', consent:true, website:'', details:{from:'QA origin',to:'QA destination',departure:day,returnDate:'',passengers:1} }
+  const input = {method:'POST',origin:'https://qa.example',host:'qa.example',contentType:'application/json',ip:`synthetic-${id}`,idempotencyKey:id,body:JSON.stringify(payload)}
+  try {
+    const created = await intake(input)
+    assert.equal(created.status,201)
+    const later = Date.now() + 3 * 86400000
+    t.mock.method(Date,'now',()=>later)
+    const recovered = await intake(input)
+    assert.equal(recovered.status,200)
+    assert.equal(recovered.body.reference,created.body.reference)
+    const changed = await intake({...input,body:JSON.stringify({...payload,name:'Changed synthetic name'})})
+    assert.equal(changed.status,409); assert.equal(changed.body.reference,undefined)
+    const rejected = await intake({...input,idempotencyKey:fresh})
+    assert.equal(rejected.status,422); assert.equal(rejected.body.reference,undefined)
+    const [counts] = await sql`SELECT (SELECT count(*)::int FROM aviation.inquiries WHERE id=ANY(${[id,fresh]}::uuid[])) AS inquiries, (SELECT count(*)::int FROM aviation.notification_outbox WHERE inquiry_id=ANY(${[id,fresh]}::uuid[])) AS jobs`
+    assert.deepEqual(counts,{inquiries:1,jobs:1})
+  } finally {
+    t.mock.restoreAll()
+    await sql.transaction([sql`DELETE FROM aviation.notification_outbox WHERE inquiry_id=ANY(${[id,fresh]}::uuid[])`,sql`DELETE FROM aviation.inquiries WHERE id=ANY(${[id,fresh]}::uuid[])`])
+  }
+})
+
 test('real Neon: concurrent duplicate, conflict, persistence, atomic outbox, and durable rate limit', { skip: !process.env.HRL_DATABASE_TEST }, async () => {
   const sql = neon(process.env.HRL_DATABASE_URL!)
   const ids: string[] = []

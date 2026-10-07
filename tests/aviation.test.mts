@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { inquirySchema } from '../src/features/aviation/requestSchema.ts'
+import { inquirySchema, inquiryValidationSchema } from '../src/features/aviation/requestSchema.ts'
 import { intake, type IntakeInput } from '../server/aviation/intake.ts'
 import { processOutbox } from '../server/aviation/outbox.ts'
 
@@ -29,4 +29,11 @@ test('outbox never sends or contacts the database while disabled', async () => {
 })
 test('outbox requires separate sender approval even when a key exists', async () => {
   await assert.rejects(() => processOutbox({ HRL_EMAIL_ENABLED: 'true', HRL_DATABASE_URL: 'unused', RESEND_API_KEY: 'not-a-real-key', HRL_EMAIL_FROM: 'test@example.com' }), /approved sender/)
+})
+test('client recovery accepts aged dates while new requests and malformed recovery remain invalid', () => {
+  const aged = { ...valid, details: { ...valid.details, departure: '2020-10-07' } }
+  assert.equal(inquiryValidationSchema(true).safeParse(aged).success, true)
+  assert.equal(inquiryValidationSchema(false).safeParse(aged).success, false)
+  assert.equal(inquiryValidationSchema(true).safeParse({ ...aged, consent: false }).success, false)
+  assert.equal(inquiryValidationSchema(true).safeParse({ ...aged, details: { ...aged.details, departure: '2020-02-30' } }).success, false)
 })
