@@ -258,3 +258,6 @@
 }
 @media(prefers-reduced-motion: reduce) { .av-experience * { animation: none !important; transition: none !important; } }
 .aviation-shell > footer p { color: #9aa8b0; }
+/* Keep parallax media inside its section and controls clear of the fixed site header. */
+.av-cinema { overflow: hidden; }
+.av-experience button, .av-experience a { scroll-margin-top: 110px; }
