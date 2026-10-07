@@ -33,3 +33,13 @@ The recovery and aviation feature branches disable Git-triggered deployments. A 
 ## Activation prerequisites
 
 Confirm the public brand, service providers/inventory and operating model; approve sender/domain/DNS and email recipients; choose and approve portal authentication with per-customer authorization; define staff access, retention/privacy operations and cancellation handling; separately approve any payment provider, charges, inventory holds and operator confirmations. No public launch or customer intake is represented by the current protected preview.
+
+## Dark regional experience (October 7, 2026)
+
+The aviation landing page now uses a dark photographic design, a five-service selector, GSAP text/scroll motion, and a Three.js regional explorer. Official GSAP React, ScrollTrigger, and performance skills were read from https://github.com/greensock/gsap-skills. React code follows scoped animation cleanup, conditional loading, and accessible controls.
+
+The 3D module loads near the explorer viewport. Rendering pauses off-screen and in hidden tabs, is capped at 30fps and device-pixel ratio 1.5, and stops when motion is paused. OS reduced-motion preferences disable animation. A geographic SVG and all destination controls remain available when WebGL or the optional chunk cannot load. The existing Mappedin and Synthesia demo routes now load their modules on navigation, keeping their runtimes out of the aviation first load.
+
+Local photography provenance, modification notices, and licenses are in `public/aviation/ATTRIBUTION.md` and visible page credits. No competitor imagery was used. An apparent South Padre aerial was rejected because its embedded location indicated Corpus Christi. Historical photos are identified by year. Fresh owner-approved HRL/property photography or licensed drone footage would be the next media upgrade; no paid tools or subscriptions were purchased.
+
+Research references: https://amalfijets.com/ (visual hierarchy and exploration patterns); https://gsap.com/docs/v3/ and https://gsap.com/community/standard-license/ (free commercial animation); https://threejs.org/docs/ (custom 3D); https://motion.dev/docs/react (alternative React motion); https://rive.app/docs/runtimes/web/web-js (state-driven vector animation); https://spline.design/pricing (optional visual 3D authoring, not required or installed). No additional service account is required by this implementation.

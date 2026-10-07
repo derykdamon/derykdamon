@@ -1,24 +1,25 @@
+import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router'
 import SiteLayout from './components/layout/SiteLayout'
-import DashboardPage from './features/activation/DashboardPage'
-import AetherMappedinPage from './features/mappedin/AetherMappedinPage'
-import DemoMap from './features/mappedin/DemoMap'
-import MappedinControlTowerDemoPage from './features/mappedin/MappedinControlTowerDemoPage'
-import MappedinImmersiveDemoPage from './features/mappedin/MappedinImmersiveDemoPage'
-import MappedinMissionControlDemoPage from './features/mappedin/MappedinMissionControlDemoPage'
-import SynthesiaDemoPage from './features/synthesia/SynthesiaDemoPage'
+const DashboardPage = lazy(() => import('./features/activation/DashboardPage'))
+const AetherMappedinPage = lazy(() => import('./features/mappedin/AetherMappedinPage'))
+const DemoMap = lazy(() => import('./features/mappedin/DemoMap'))
+const MappedinControlTowerDemoPage = lazy(() => import('./features/mappedin/MappedinControlTowerDemoPage'))
+const MappedinImmersiveDemoPage = lazy(() => import('./features/mappedin/MappedinImmersiveDemoPage'))
+const MappedinMissionControlDemoPage = lazy(() => import('./features/mappedin/MappedinMissionControlDemoPage'))
+const SynthesiaDemoPage = lazy(() => import('./features/synthesia/SynthesiaDemoPage'))
 import AboutPage from './pages/AboutPage'
 import ContactPage from './pages/ContactPage'
 import HomePage from './pages/HomePage'
 import PlatformPage from './pages/PlatformPage'
 import SolutionsPage from './pages/SolutionsPage'
-import AviationPage from './features/aviation/AviationPage'
-import AviationRequest from './features/aviation/AviationRequest'
-import AviationPortal from './features/aviation/AviationPortal'
+const AviationPage = lazy(() => import('./features/aviation/AviationPage'))
+const AviationRequest = lazy(() => import('./features/aviation/AviationRequest'))
+const AviationPortal = lazy(() => import('./features/aviation/AviationPortal'))
 
 function App() {
   return (
-    <Routes>
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 p-10 text-slate-300" role="status">Loading…</div>}><Routes>
       <Route element={<SiteLayout />}>
         <Route index element={<HomePage />} />
         <Route path="platform" element={<PlatformPage />} />
@@ -45,7 +46,7 @@ function App() {
       <Route path="/demo2" element={<MappedinControlTowerDemoPage />} />
       <Route path="/demo3" element={<MappedinMissionControlDemoPage />} />
       <Route path="/mappedin" element={<AetherMappedinPage />} />
-    </Routes>
+    </Routes></Suspense>
   )
 }
 

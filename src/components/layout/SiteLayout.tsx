@@ -1,6 +1,6 @@
 import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
-import { Link, NavLink, Outlet } from 'react-router'
+import { Link, NavLink, Outlet, useLocation } from 'react-router'
 
 const navigation = [
     { name: 'Home', path: '/' },
@@ -12,6 +12,7 @@ const navigation = [
 
 function SiteLayout() {
     const [menuOpen, setMenuOpen] = useState(false)
+    const aviation = useLocation().pathname.startsWith('/aviation')
 
     const navClass = ({ isActive }: { isActive: boolean }) =>
         `transition ${
@@ -19,7 +20,7 @@ function SiteLayout() {
         }`
 
     return (
-        <div className="min-h-screen overflow-x-hidden text-slate-100">
+        <div className={`min-h-screen overflow-x-hidden text-slate-100${aviation ? ' aviation-shell' : ''}`}>
             <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur-xl">
                 <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-8">
                     <Link
@@ -39,10 +40,10 @@ function SiteLayout() {
 
                     <div className="hidden md:block">
                         <Link
-                            to="/contact"
+                            to={aviation ? '/aviation/request?service=flight&step=details' : '/contact'}
                             className="rounded-full border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-300/20"
                         >
-                            Contact
+                            {aviation ? 'Begin an inquiry ↗' : 'Contact'}
                         </Link>
                     </div>
 
@@ -90,7 +91,7 @@ function SiteLayout() {
             <footer className="border-t border-white/10">
                 <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-8 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between lg:px-8">
                     <p>© 2026 Deryk Damon. All rights reserved.</p>
-                    <p>Healthcare technology · IT · Low voltage · Analytics</p>
+                    <p>{aviation ? 'Harlingen, Texas · Aviation concept in development' : 'Healthcare technology · IT · Low voltage · Analytics'}</p>
                 </div>
             </footer>
         </div>

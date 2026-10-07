@@ -15,15 +15,18 @@
     "aviation:outbox": "node --env-file=.env.local scripts/aviation-outbox.mts"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@mappedin/mappedin-js": "^6.23.0",
     "@mappedin/react-sdk": "^6.23.0",
     "@neondatabase/serverless": "^1.2.0",
     "@tailwindcss/vite": "^4.3.3",
+    "gsap": "^3.15.0",
     "lucide-react": "^1.28.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.3.0",
     "tailwindcss": "^4.3.3",
+    "three": "^0.186.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -31,6 +34,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.186.0",
     "@vercel/node": "^5.9.5",
     "@vitejs/plugin-react": "^6.0.4",
     "eslint": "^10.8.0",
